@@ -1,0 +1,48 @@
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
+      TIME_ZONE: ${TIME_ZONE:-Australia/Sydney}
+      TZ: ${TIME_ZONE:-Australia/Sydney}
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-11:59 PM}
+      TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-restart}
+      RELOGIN_AFTER_TWOFA_TIMEOUT: ${RELOGIN_AFTER_TWOFA_TIMEOUT:-yes}
+      EXISTING_SESSION_DETECTED_ACTION: ${EXISTING_SESSION_DETECTED_ACTION:-primary}
+    ports:
+      - "127.0.0.1:4001:4003"
+      - "127.0.0.1:4002:4004"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - ib-gateway
+    environment:
+      SECRETS_PATH: /app/config/secrets.yaml
+      IB_GATEWAY_HOST: ib-gateway
+      IB_GATEWAY_PORT: ${IB_GATEWAY_PORT:-4004}
+      IB_CLIENT_ID: ${IB_CLIENT_ID:-1}
+      IB_TRADING_MODE: ${TRADING_MODE:-paper}
+      IB_MAX_DEPTH_SYMBOLS: ${IB_MAX_DEPTH_SYMBOLS:-3}
+    volumes:
+      - ./data:/data
+      - ./config/secrets.yaml:/app/config/secrets.yaml:ro
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro

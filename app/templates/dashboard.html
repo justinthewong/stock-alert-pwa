@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <title>Stock Alerts — Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Stock Alerts</h1>
+      <p class="subtitle">Logged in as {{ username }}</p>
+    </div>
+    <button id="logout-btn" type="button" class="secondary">Log out</button>
+  </header>
+
+  <div id="ios-banner" class="banner" hidden>
+    <strong>iPhone setup:</strong> Open in Safari, tap Share, choose Add to Home Screen, then open the app from your home screen before enabling notifications.
+  </div>
+
+  <main class="layout">
+    <section class="card">
+      <h2>Create alert</h2>
+      <form id="alert-form">
+        <div class="grid">
+          <label>
+            Ticker
+            <input type="text" name="ticker" placeholder="BHP" maxlength="6" required>
+          </label>
+          <label>
+            Side
+            <select name="side" required>
+              <option value="buy">Buy (ask liquidity)</option>
+              <option value="sell">Sell (bid liquidity)</option>
+            </select>
+          </label>
+          <label>
+            Share count
+            <input type="number" name="share_count" min="1" step="1" required>
+          </label>
+          <label>
+            Target price (AUD)
+            <input type="number" name="target_price" min="0.01" step="0.01" required>
+          </label>
+        </div>
+        <button type="submit">Add alert</button>
+        <p id="alert-form-error" class="error" hidden></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="row-between">
+        <h2>Alerts</h2>
+        <button id="enable-push-btn" type="button">Enable notifications</button>
+      </div>
+      <p id="push-status" class="muted"></p>
+      <div id="alerts-list" class="alerts-list"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <title>Stock Alerts — Login</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-page">
+  <main class="card">
+    <h1>Stock Alerts</h1>
+    <p class="subtitle">ASX depth notifications</p>
+    <form id="login-form">
+      <label>
+        Username
+        <input type="text" name="username" autocomplete="username" required>
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">Sign in</button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+  </main>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const errorEl = document.getElementById('login-error');
+      errorEl.hidden = true;
+      const payload = {
+        username: form.username.value.trim(),
+        password: form.password.value,
+      };
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        window.location.href = '/dashboard';
+        return;
+      }
+      errorEl.textContent = 'Invalid username or password.';
+      errorEl.hidden = false;
+    });
+  </script>
+</body>
+</html>
