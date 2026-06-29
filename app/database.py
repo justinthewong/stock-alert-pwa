@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from datetime import datetime
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator
 
 from sqlalchemy import (
     DateTime,
@@ -32,9 +30,9 @@ class Alert(Base):
     share_count: Mapped[int] = mapped_column(Integer, nullable=False)
     target_price: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", index=True)
-    last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_depth_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_checked_at = mapped_column(DateTime, nullable=True)
+    triggered_at = mapped_column(DateTime, nullable=True)
+    last_depth_json = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -45,7 +43,7 @@ class PushSubscription(Base):
     endpoint: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     p256dh: Mapped[str] = mapped_column(Text, nullable=False)
     auth: Mapped[str] = mapped_column(Text, nullable=False)
-    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_agent = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -53,9 +51,9 @@ class AlertLog(Base):
     __tablename__ = "alert_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    alert_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alerts.id"), nullable=True)
+    alert_id = mapped_column(Integer, ForeignKey("alerts.id"), nullable=True)
     event: Mapped[str] = mapped_column(String(64), nullable=False)
-    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detail = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 

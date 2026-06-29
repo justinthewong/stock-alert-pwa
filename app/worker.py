@@ -17,13 +17,10 @@ from app.services.alert_service import (
     mark_triggered,
 )
 from app.services.depth_checker import evaluate_alert
-from ib_insync import util
-
 from app.services.ibkr_client import IbkrDepthClient
 from app.services.push_notifier import send_alert_notification
 
 logger = logging.getLogger(__name__)
-util.patchAsyncio()
 
 
 def _session() -> Session:
@@ -155,6 +152,9 @@ _worker: DepthWorker | None = None
 
 
 async def run_depth_worker() -> None:
+    from ib_insync import util
+
+    util.patchAsyncio()
     global _worker
     _worker = DepthWorker()
     await _worker.run()

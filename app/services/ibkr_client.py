@@ -1,26 +1,39 @@
 from __future__ import annotations
 
 import logging
-
-from ib_insync import IB, Stock
+from typing import Any
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-def asx_stock(ticker: str) -> Stock:
+def _ib_insync():
+    from ib_insync import IB, Stock
+
+    return IB, Stock
+
+
+def asx_stock(ticker: str) -> Any:
+    _, Stock = _ib_insync()
     return Stock(symbol=ticker, exchange="SMART", currency="AUD", primaryExchange="ASX")
 
 
 class IbkrDepthClient:
     def __init__(self) -> None:
-        self.ib = IB()
+        self._ib = None
         self._tickers: dict[str, object] = {}
 
     @property
+    def ib(self) -> Any:
+        if self._ib is None:
+            IB, _ = _ib_insync()
+            self._ib = IB()
+        return self._ib
+
+    @property
     def connected(self) -> bool:
-        return self.ib.isConnected()
+        return self._ib is not None and self.ib.isConnected()
 
     async def connect(self) -> None:
         settings = get_settings().ibkr
@@ -54,9 +67,9 @@ class IbkrDepthClient:
         return market_ticker
 
     def unsubscribe_depth(self, ticker: str) -> None:
-        market_ticker = self._tickers.pop(ticker, None)
-        if market_ticker is None:
+        if ticker not in self._tickers:
             return
+        self._tickers.pop(ticker, None)
         contract = asx_stock(ticker)
         self.ib.cancelMktDepth(contract, isSmartDepth=True)
         logger.info("Unsubscribed from depth for %s", ticker)
