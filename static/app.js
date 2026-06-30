@@ -15,6 +15,18 @@ function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
+async function parseApiResponse(response) {
+  const raw = await response.text();
+  if (!raw) {
+    return { data: {}, raw };
+  }
+  try {
+    return { data: JSON.parse(raw), raw };
+  } catch {
+    return { data: null, raw };
+  }
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -65,16 +77,23 @@ async function loadAlerts() {
 
 let ibkrPollTimer = null;
 
-function formatApiError(data, fallback) {
-  if (!data) return fallback;
-  if (typeof data.detail === 'string') return data.detail;
-  if (Array.isArray(data.detail)) {
-    return data.detail.map((item) => item.msg || JSON.stringify(item)).join('; ');
+function formatApiError(data, raw, fallback) {
+  if (data) {
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+      return data.detail.map((item) => item.msg || JSON.stringify(item)).join('; ');
+    }
+    if (data.detail && typeof data.detail === 'object') {
+      return data.detail.message || data.detail.error || JSON.stringify(data.detail);
+    }
+    return data.message || data.error || fallback;
   }
-  if (data.detail && typeof data.detail === 'object') {
-    return data.detail.message || data.detail.error || JSON.stringify(data.detail);
+  if (raw) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('<')) return fallback;
+    return trimmed.slice(0, 300);
   }
-  return data.message || data.error || fallback;
+  return fallback;
 }
 
 function setIbkrError(message) {
@@ -159,9 +178,9 @@ function startIbkrPolling() {
 
     try {
       const response = await api('/api/ibkr/status');
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(formatApiError(data, 'Could not read IBKR status.'));
+      const { data, raw } = await parseApiResponse(response);
+      if (!response.ok || !data) {
+        throw new Error(formatApiError(data, raw, 'Could not read IBKR status.'));
       }
       updateIbkrUi(data);
       if (data.status === 'connected' || data.status === 'error') {
@@ -176,9 +195,9 @@ function startIbkrPolling() {
 
 async function loadIbkrStatus() {
   const response = await api('/api/ibkr/status');
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(formatApiError(data, 'Could not load IBKR status.'));
+  const { data, raw } = await parseApiResponse(response);
+  if (!response.ok || !data) {
+    throw new Error(formatApiError(data, raw, 'Could not load IBKR status.'));
   }
   updateIbkrUi(data);
   if (data.status === 'connecting') {
@@ -202,10 +221,11 @@ async function connectIbkr() {
   }
 
   let response;
-  let data = {};
+  let data = null;
+  let raw = '';
   try {
     response = await api('/api/ibkr/login', { method: 'POST' });
-    data = await response.json().catch(() => ({}));
+    ({ data, raw } = await parseApiResponse(response));
   } catch (error) {
     const message = error.message || 'Network error while contacting server.';
     appendIbkrLog([`Request failed: ${message}`]);
@@ -221,10 +241,10 @@ async function connectIbkr() {
     return;
   }
 
-  if (!response.ok) {
-    const detail = data.detail;
-    const steps = detail?.steps || data.steps || [];
-    const errorMessage = formatApiError(data, 'Could not start IBKR login.');
+  if (!response.ok || !data) {
+    const detail = data?.detail;
+    const steps = detail?.steps || data?.steps || [];
+    const errorMessage = formatApiError(data, raw, 'Could not start IBKR login.');
     if (steps.length) {
       appendIbkrLog(steps);
     } else {

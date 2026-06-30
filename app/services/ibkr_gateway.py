@@ -48,21 +48,37 @@ def _docker_socket_available() -> bool:
     return os.path.exists("/var/run/docker.sock")
 
 
-def _append_step(steps: list[str], message: str) -> None:
-    steps.append(message)
-    logger.info("IBKR login: %s", message)
+def _docker_cli_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return result.returncode == 0
 
 
 def get_gateway_container_state() -> GatewayContainerState:
     if not _docker_socket_available():
         return "unavailable"
 
-    result = subprocess.run(
-        ["docker", "inspect", "-f", "{{.State.Running}}", _container_name()],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", _container_name()],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        logger.warning("docker CLI not found while checking gateway container state")
+        return "unavailable"
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("docker inspect failed: %s", exc)
+        return "unavailable"
+
     if result.returncode != 0:
         stderr = result.stderr.strip()
         if "No such object" in stderr or "Error: No such object" in stderr:
@@ -74,6 +90,11 @@ def get_gateway_container_state() -> GatewayContainerState:
     if running == "true":
         return "running"
     return "exited"
+
+
+def _append_step(steps: list[str], message: str) -> None:
+    steps.append(message)
+    logger.info("IBKR login: %s", message)
 
 
 async def is_api_port_open() -> bool:
@@ -175,6 +196,16 @@ def trigger_gateway_login() -> IbkrLoginResult:
             error="Start ib-gateway manually on the host: docker compose --profile ibkr up -d ib-gateway",
         )
 
+    if not _docker_cli_available():
+        message = "Docker CLI is not available inside the app container."
+        _append_step(steps, f"Error: {message}")
+        return IbkrLoginResult(
+            ok=False,
+            message=message,
+            steps=steps,
+            error="Rebuild the app image: docker compose up -d --build app",
+        )
+
     _append_step(steps, "Docker socket is available.")
 
     state = get_gateway_container_state()
@@ -226,7 +257,23 @@ def trigger_gateway_login() -> IbkrLoginResult:
 
 
 async def resolve_ibkr_status() -> IbkrStatusDetails:
-    docker_available = _docker_socket_available()
+    try:
+        return await _resolve_ibkr_status()
+    except Exception as exc:
+        logger.exception("Failed to resolve IBKR status")
+        return IbkrStatusDetails(
+            status="error",
+            message="Could not check IBKR status.",
+            gateway_running=False,
+            error=str(exc),
+            container_state="unavailable",
+            docker_available=_docker_socket_available(),
+            api_port_open=False,
+        )
+
+
+async def _resolve_ibkr_status() -> IbkrStatusDetails:
+    docker_available = _docker_socket_available() and _docker_cli_available()
     container_state = get_gateway_container_state()
     gateway_running = container_state == "running"
     api_port_open = await is_api_port_open() if gateway_running else False
@@ -242,6 +289,16 @@ async def resolve_ibkr_status() -> IbkrStatusDetails:
         )
 
     if not docker_available:
+        if _docker_socket_available() and not _docker_cli_available():
+            return IbkrStatusDetails(
+                status="error",
+                message="Docker CLI is not available inside the app container.",
+                gateway_running=False,
+                error="Rebuild the app image so it includes the docker CLI: docker compose up -d --build app",
+                container_state=container_state,
+                docker_available=False,
+                api_port_open=False,
+            )
         return IbkrStatusDetails(
             status="error",
             message="Docker socket is not available. IBKR login cannot be triggered from the dashboard.",
