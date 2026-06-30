@@ -180,6 +180,22 @@ button.secondary {
   color: var(--muted);
 }
 
+.status.connecting {
+  color: var(--accent);
+}
+
+.status.connected {
+  color: var(--success);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.status.disconnected {
+  color: var(--muted);
+}
+
 .alert-actions {
   display: flex;
   justify-content: flex-end;

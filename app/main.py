@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routes import alerts, auth, pages, push
+from app.routes import alerts, auth, ibkr, pages, push
 from app.worker import run_depth_worker
 
 logging.basicConfig(
@@ -44,6 +44,7 @@ app.include_router(pages.router)
 app.include_router(auth.router)
 app.include_router(alerts.router)
 app.include_router(push.router)
+app.include_router(ibkr.router)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

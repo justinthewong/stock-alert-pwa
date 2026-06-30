@@ -1,6 +1,8 @@
 services:
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
+    container_name: stock-alert-ib-gateway
+    profiles: ["ibkr"]
     restart: unless-stopped
     environment:
       TWS_USERID: ${TWS_USERID}
@@ -20,18 +22,20 @@ services:
   app:
     build: .
     restart: unless-stopped
-    depends_on:
-      - ib-gateway
     environment:
       SECRETS_PATH: /app/config/secrets.yaml
       IB_GATEWAY_HOST: ib-gateway
       IB_GATEWAY_PORT: ${IB_GATEWAY_PORT:-4004}
+      IB_GATEWAY_CONTAINER: ${IB_GATEWAY_CONTAINER:-stock-alert-ib-gateway}
       IB_CLIENT_ID: ${IB_CLIENT_ID:-1}
       IB_TRADING_MODE: ${TRADING_MODE:-paper}
       IB_MAX_DEPTH_SYMBOLS: ${IB_MAX_DEPTH_SYMBOLS:-3}
     volumes:
       - ./data:/data
       - ./config/secrets.yaml:/app/config/secrets.yaml:ro
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./.env:/app/.env:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     expose:
       - "8000"
 

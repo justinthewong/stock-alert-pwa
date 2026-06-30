@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 Side = Literal["buy", "sell"]
 AlertStatus = Literal["active", "triggered", "disabled"]
+IbkrConnectionStatus = Literal["disconnected", "connecting", "connected", "error"]
 
 
 class LoginRequest(BaseModel):
@@ -56,3 +57,9 @@ class PushSubscriptionRequest(BaseModel):
 
 class PublicConfigResponse(BaseModel):
     vapid_public_key: str
+
+
+class IbkrStatusResponse(BaseModel):
+    status: IbkrConnectionStatus
+    message: str
+    gateway_running: bool
