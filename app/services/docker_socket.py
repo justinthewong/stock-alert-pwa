@@ -13,7 +13,42 @@ logger = logging.getLogger(__name__)
 
 ContainerState = Literal["running", "exited", "missing", "unavailable"]
 DEFAULT_SOCKET = "/var/run/docker.sock"
-DEFAULT_API_VERSION = "v1.41"
+MIN_API_VERSION = (1, 44)
+
+
+def _parse_api_version(value: str) -> tuple[int, int]:
+    major, _, minor = value.lstrip("v").partition(".")
+    return int(major), int(minor or 0)
+
+
+def _format_api_version(major: int, minor: int) -> str:
+    return f"v{major}.{minor}"
+
+
+def _resolve_api_version(socket_path: str) -> str:
+    configured = os.getenv("DOCKER_API_VERSION", "").strip()
+    if configured:
+        return configured if configured.startswith("v") else f"v{configured}"
+
+    probe = httpx.Client(
+        transport=httpx.HTTPTransport(uds=socket_path),
+        base_url="http://docker",
+        timeout=5.0,
+    )
+    try:
+        response = probe.get("/version")
+        if response.status_code == 200:
+            payload = response.json()
+            negotiated = _parse_api_version(str(payload.get("ApiVersion", "1.44")))
+            minimum = _parse_api_version(str(payload.get("MinAPIVersion", "1.44")))
+            chosen = max(negotiated, minimum, MIN_API_VERSION)
+            return _format_api_version(*chosen)
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        logger.warning("Could not negotiate Docker API version: %s", exc)
+    finally:
+        probe.close()
+
+    return _format_api_version(*MIN_API_VERSION)
 
 
 class DockerSocketError(Exception):
@@ -25,9 +60,10 @@ class DockerSocketError(Exception):
 class DockerSocketClient:
     def __init__(self, socket_path: str = DEFAULT_SOCKET) -> None:
         self.socket_path = socket_path
+        self.api_version = _resolve_api_version(socket_path)
         self._client = httpx.Client(
             transport=httpx.HTTPTransport(uds=socket_path),
-            base_url=f"http://docker/{DEFAULT_API_VERSION}",
+            base_url=f"http://docker/{self.api_version}",
             timeout=60.0,
         )
 
@@ -49,7 +85,7 @@ class DockerSocketClient:
             return False, str(exc)
         if response.status_code != 200:
             return False, response.text.strip() or f"Docker API returned {response.status_code}"
-        return True, ""
+        return True, f"Docker API {self.api_version}"
 
     def container_state(self, name: str) -> ContainerState:
         try:

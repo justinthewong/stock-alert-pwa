@@ -132,14 +132,14 @@ def trigger_gateway_login() -> IbkrLoginResult:
         )
 
     with client:
-        ok, docker_error = client.available()
+        ok, docker_info = client.available()
         if not ok:
             message = "Could not access the Docker API from the app container."
             _append_step(steps, f"Error: {message}")
-            _append_step(steps, docker_error)
-            return IbkrLoginResult(ok=False, message=message, steps=steps, error=docker_error)
+            _append_step(steps, docker_info)
+            return IbkrLoginResult(ok=False, message=message, steps=steps, error=docker_info)
 
-        _append_step(steps, "Docker API is available.")
+        _append_step(steps, docker_info or "Docker API is available.")
 
         state = client.container_state(_container_name())
         _append_step(steps, f"Gateway container state: {state}.")
