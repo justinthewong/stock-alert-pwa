@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database import Alert, AlertLog, PushSubscription
@@ -46,8 +46,10 @@ def delete_alert(session: Session, alert_id: int) -> bool:
     alert = session.get(Alert, alert_id)
     if alert is None:
         return False
+    ticker = alert.ticker
+    log_event(session, None, "deleted", f"alert {alert_id} ({ticker})")
+    session.execute(delete(AlertLog).where(AlertLog.alert_id == alert_id))
     session.delete(alert)
-    log_event(session, alert_id, "deleted", alert.ticker)
     return True
 
 

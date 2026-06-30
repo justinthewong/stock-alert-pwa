@@ -51,7 +51,7 @@ class AlertLog(Base):
     __tablename__ = "alert_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    alert_id = mapped_column(Integer, ForeignKey("alerts.id"), nullable=True)
+    alert_id = mapped_column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=True)
     event: Mapped[str] = mapped_column(String(64), nullable=False)
     detail = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

@@ -171,8 +171,16 @@ document.addEventListener('DOMContentLoaded', () => {
     alertsList.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-delete-id]');
       if (!button) return;
+      const errorEl = document.getElementById('alert-form-error');
+      errorEl.hidden = true;
       const alertId = button.getAttribute('data-delete-id');
-      await api(`/api/alerts/${alertId}`, { method: 'DELETE' });
+      const response = await api(`/api/alerts/${alertId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        errorEl.textContent = data.detail || 'Could not delete alert.';
+        errorEl.hidden = false;
+        return;
+      }
       await loadAlerts();
     });
   }
