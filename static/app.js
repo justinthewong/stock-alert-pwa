@@ -172,7 +172,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const button = event.target.closest('[data-delete-id]');
       if (!button) return;
       const alertId = button.getAttribute('data-delete-id');
-      await api(`/api/alerts/${alertId}`, { method: 'DELETE' });
+      const errorEl = document.getElementById('alerts-error');
+      if (errorEl) errorEl.hidden = true;
+
+      const response = await api(`/api/alerts/${alertId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        if (errorEl) {
+          errorEl.textContent = data.detail || 'Could not delete alert.';
+          errorEl.hidden = false;
+        }
+        return;
+      }
+
       await loadAlerts();
     });
   }
