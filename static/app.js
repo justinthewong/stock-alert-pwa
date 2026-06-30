@@ -150,6 +150,13 @@ function maybeOpenIbkrVncModal(data) {
   }
 }
 
+function updateStopButton(data) {
+  const stopBtn = document.getElementById('ibkr-stop-btn');
+  if (!stopBtn) return;
+  const running = Boolean(data?.gateway_running) || data?.container_state === 'running';
+  stopBtn.hidden = !running;
+}
+
 function updateIbkrUi(data) {
   const statusEl = document.getElementById('ibkr-status');
   const loginBtn = document.getElementById('ibkr-login-btn');
@@ -169,9 +176,14 @@ function updateIbkrUi(data) {
     setIbkrError('');
   }
 
+  updateStopButton(data);
+
   if (data.status === 'connected') {
     closeIbkrVncModal();
     loginBtn.hidden = true;
+    if (vncOpenBtn) {
+      vncOpenBtn.hidden = true;
+    }
     return;
   }
 
@@ -320,6 +332,65 @@ async function connectIbkr() {
   }
 }
 
+async function stopIbkrGateway() {
+  const stopBtn = document.getElementById('ibkr-stop-btn');
+  const loginBtn = document.getElementById('ibkr-login-btn');
+  setIbkrError('');
+  stopIbkrPolling();
+  closeIbkrVncModal();
+  appendIbkrLog(['Stop gateway requested...']);
+
+  if (stopBtn) {
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping...';
+  }
+
+  let response;
+  let data = null;
+  let raw = '';
+  try {
+    response = await api('/api/ibkr/stop', { method: 'POST' });
+    ({ data, raw } = await parseApiResponse(response));
+  } catch (error) {
+    const message = error.message || 'Network error while contacting server.';
+    appendIbkrLog([`Stop failed: ${message}`]);
+    setIbkrError(message);
+    if (stopBtn) {
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop gateway';
+    }
+    return;
+  }
+
+  if (!response.ok || !data) {
+    const detail = data?.detail;
+    const steps = detail?.steps || data?.steps || [];
+    const errorMessage = formatApiError(data, raw, 'Could not stop IB Gateway.');
+    if (steps.length) {
+      appendIbkrLog(steps);
+    } else {
+      appendIbkrLog([errorMessage]);
+    }
+    setIbkrError(detail?.error || data?.error || errorMessage);
+    if (stopBtn) {
+      stopBtn.disabled = false;
+      stopBtn.textContent = 'Stop gateway';
+    }
+    return;
+  }
+
+  updateIbkrUi(data);
+  if (loginBtn) {
+    loginBtn.hidden = false;
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Connect IBKR';
+  }
+  if (stopBtn) {
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop gateway';
+  }
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -415,6 +486,18 @@ document.addEventListener('DOMContentLoaded', () => {
   if (ibkrVncOpenBtn) {
     ibkrVncOpenBtn.addEventListener('click', () => {
       openIbkrVncModal();
+    });
+  }
+
+  const ibkrStopBtn = document.getElementById('ibkr-stop-btn');
+  if (ibkrStopBtn) {
+    ibkrStopBtn.addEventListener('click', () => {
+      stopIbkrGateway().catch((error) => {
+        appendIbkrLog([`Unexpected error: ${error.message}`]);
+        setIbkrError(error.message);
+        ibkrStopBtn.disabled = false;
+        ibkrStopBtn.textContent = 'Stop gateway';
+      });
     });
   }
 

@@ -123,6 +123,19 @@ class DockerSocketClient:
             details=response.text.strip() or f"HTTP {response.status_code}",
         )
 
+    def stop_container(self, name: str) -> str:
+        response = self._client.post(f"/containers/{name}/stop", params={"t": 30})
+        if response.status_code == 204:
+            return f"Stopped container {name}."
+        if response.status_code == 304:
+            return f"Container {name} was already stopped."
+        if response.status_code == 404:
+            return f"Container {name} does not exist."
+        raise DockerSocketError(
+            f"Could not stop container {name}.",
+            details=response.text.strip() or f"HTTP {response.status_code}",
+        )
+
     def container_env(self, name: str) -> dict[str, str]:
         try:
             response = self._client.get(f"/containers/{name}/json")

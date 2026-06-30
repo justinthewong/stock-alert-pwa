@@ -261,6 +261,57 @@ def trigger_gateway_login() -> IbkrLoginResult:
     return IbkrLoginResult(ok=False, message=message, steps=steps, error=message)
 
 
+def trigger_gateway_stop() -> IbkrLoginResult:
+    steps: list[str] = []
+    _append_step(steps, "Stop gateway requested.")
+
+    client = get_docker_client()
+    if client is None:
+        message = "Docker socket is not available inside the app container."
+        _append_step(steps, f"Error: {message}")
+        return IbkrLoginResult(
+            ok=False,
+            message=message,
+            steps=steps,
+            error="Stop ib-gateway manually on the host: docker stop stock-alert-ib-gateway",
+        )
+
+    with client:
+        ok, docker_info = client.available()
+        if not ok:
+            message = "Could not access the Docker API from the app container."
+            _append_step(steps, f"Error: {message}")
+            _append_step(steps, docker_info)
+            return IbkrLoginResult(ok=False, message=message, steps=steps, error=docker_info)
+
+        _append_step(steps, docker_info or "Docker API is available.")
+
+        state = client.container_state(_container_name())
+        _append_step(steps, f"Gateway container state: {state}.")
+
+        if state in ("missing", "exited"):
+            message = "IB Gateway is not running."
+            _append_step(steps, message)
+            return IbkrLoginResult(ok=True, message=message, steps=steps)
+
+        if state == "running":
+            try:
+                _append_step(steps, client.stop_container(_container_name()))
+            except DockerSocketError as exc:
+                message = str(exc)
+                _append_step(steps, f"Error: {message}")
+                if exc.details:
+                    _append_step(steps, exc.details)
+                return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
+            message = "IB Gateway stopped."
+            _append_step(steps, message)
+            return IbkrLoginResult(ok=True, message=message, steps=steps)
+
+    message = "Could not determine gateway container state."
+    _append_step(steps, f"Error: {message}")
+    return IbkrLoginResult(ok=False, message=message, steps=steps, error=message)
+
+
 async def resolve_ibkr_status() -> IbkrStatusDetails:
     try:
         return await _resolve_ibkr_status()
