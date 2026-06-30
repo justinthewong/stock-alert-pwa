@@ -6,8 +6,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Literal
 
-from app.config import get_settings
-from app.config import get_settings
+from app.config import get_settings, get_vnc_password
 from app.services.docker_socket import DockerSocketClient, DockerSocketError, get_docker_client
 from app.worker import is_ibkr_connected
 
@@ -43,11 +42,29 @@ def _container_name() -> str:
 
 
 def _vnc_configured() -> bool:
-    return bool(get_settings().ibkr.vnc_password)
+    return bool(get_vnc_password())
 
 
-def _vnc_available(gateway_running: bool) -> bool:
-    return _vnc_configured() and gateway_running
+def _container_has_vnc(client: DockerSocketClient) -> bool:
+    return bool(client.container_env_value(_container_name(), "VNC_SERVER_PASSWORD"))
+
+
+def _needs_gateway_recreate(client: DockerSocketClient) -> bool:
+    return _vnc_configured() and not _container_has_vnc(client)
+
+
+def _connecting_status_message(vnc_available: bool, gateway_container_vnc: bool) -> tuple[str, str | None]:
+    if vnc_available:
+        return "Gateway is running. Complete login in the popup window.", None
+    if _vnc_configured() and not gateway_container_vnc:
+        return (
+            "Gateway is running but needs to be recreated for the GUI popup.",
+            "Click Connect IBKR to recreate the gateway with VNC enabled.",
+        )
+    return (
+        "Gateway is running, waiting for login.",
+        "Set VNC_SERVER_PASSWORD in .env and click Connect IBKR to use the GUI popup.",
+    )
 
 
 def _append_step(steps: list[str], message: str) -> None:
@@ -104,7 +121,31 @@ def _validate_gateway_prerequisites(steps: list[str]) -> str | None:
 def _login_pending_message() -> str:
     if _vnc_configured():
         return "IB Gateway started. Complete login in the popup window."
-    return "IB Gateway started. Approve 2FA on your phone if prompted."
+    return "IB Gateway started. Set VNC_SERVER_PASSWORD in .env, then click Connect IBKR again."
+
+
+def _recreate_gateway_container(client: DockerSocketClient, steps: list[str]) -> IbkrLoginResult:
+    prerequisite_error = _validate_gateway_prerequisites(steps)
+    if prerequisite_error:
+        _append_step(steps, f"Error: {prerequisite_error}")
+        return IbkrLoginResult(ok=False, message=prerequisite_error, steps=steps, error=prerequisite_error)
+
+    try:
+        for line in client.recreate_gateway_container(_container_name()):
+            _append_step(steps, line)
+    except DockerSocketError as exc:
+        message = str(exc)
+        details = exc.details or message
+        _append_step(steps, f"Error: {message}")
+        if exc.details:
+            _append_step(steps, exc.details)
+        return IbkrLoginResult(ok=False, message=message, steps=steps, error=details)
+
+    return IbkrLoginResult(
+        ok=True,
+        message=_login_pending_message(),
+        steps=steps,
+    )
 
 
 def _create_gateway_container(client: DockerSocketClient, steps: list[str]) -> IbkrLoginResult:
@@ -164,6 +205,10 @@ def trigger_gateway_login() -> IbkrLoginResult:
             return _create_gateway_container(client, steps)
 
         if state == "exited":
+            if _needs_gateway_recreate(client):
+                _append_step(steps, "Gateway container lacks VNC. Recreating with current settings...")
+                return _recreate_gateway_container(client, steps)
+
             _append_step(steps, f"Starting container {_container_name()}...")
             try:
                 _append_step(steps, client.start_container(_container_name()))
@@ -186,6 +231,10 @@ def trigger_gateway_login() -> IbkrLoginResult:
                 _append_step(steps, message)
                 return IbkrLoginResult(ok=True, message=message, steps=steps)
 
+            if _needs_gateway_recreate(client):
+                _append_step(steps, "Gateway container lacks VNC. Recreating with current settings...")
+                return _recreate_gateway_container(client, steps)
+
             _append_step(steps, "Gateway is running but API is not connected. Restarting container for a fresh login...")
             try:
                 _append_step(steps, client.restart_container(_container_name()))
@@ -195,7 +244,11 @@ def trigger_gateway_login() -> IbkrLoginResult:
                 if exc.details:
                     _append_step(steps, exc.details)
                 return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
-            message = "IB Gateway restarted. Complete login in the popup window." if _vnc_configured() else "IB Gateway restarted. Approve 2FA on your phone if prompted."
+            message = (
+                "IB Gateway restarted. Complete login in the popup window."
+                if _vnc_configured()
+                else "IB Gateway restarted. Set VNC_SERVER_PASSWORD in .env, then click Connect IBKR again."
+            )
             _append_step(steps, message)
             return IbkrLoginResult(
                 ok=True,
@@ -228,6 +281,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
     docker_available = False
     docker_error = ""
     container_state: GatewayContainerState = "unavailable"
+    gateway_container_vnc = False
 
     client = get_docker_client()
     if client is not None:
@@ -235,10 +289,12 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             docker_available, docker_error = client.available()
             if docker_available:
                 container_state = client.container_state(_container_name())
+                if container_state == "running" and _vnc_configured():
+                    gateway_container_vnc = _container_has_vnc(client)
 
     gateway_running = container_state == "running"
     api_port_open = await is_api_port_open() if gateway_running else False
-    vnc_available = _vnc_available(gateway_running)
+    vnc_available = _vnc_configured() and gateway_running and gateway_container_vnc
 
     if is_ibkr_connected():
         return IbkrStatusDetails(
@@ -297,11 +353,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             vnc_available=False,
         )
 
-    connecting_message = (
-        "Gateway is running. Complete login in the popup window."
-        if vnc_available
-        else "Gateway is running. Approve 2FA on your phone if prompted."
-    )
+    connecting_message, connecting_error = _connecting_status_message(vnc_available, gateway_container_vnc)
 
     if gateway_running and not api_port_open:
         return IbkrStatusDetails(
@@ -312,6 +364,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             docker_available=docker_available,
             api_port_open=False,
             vnc_available=vnc_available,
+            error=connecting_error,
         )
 
     if gateway_running:

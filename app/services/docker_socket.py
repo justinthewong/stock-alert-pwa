@@ -123,6 +123,46 @@ class DockerSocketClient:
             details=response.text.strip() or f"HTTP {response.status_code}",
         )
 
+    def container_env(self, name: str) -> dict[str, str]:
+        try:
+            response = self._client.get(f"/containers/{name}/json")
+        except (httpx.HTTPError, OSError) as exc:
+            logger.warning("Docker inspect failed for %s: %s", name, exc)
+            return {}
+
+        if response.status_code != 200:
+            return {}
+
+        values: dict[str, str] = {}
+        for entry in response.json().get("Config", {}).get("Env", []):
+            if "=" in entry:
+                key, value = entry.split("=", 1)
+                values[key] = value
+        return values
+
+    def container_env_value(self, name: str, key: str) -> str:
+        return self.container_env(name).get(key, "")
+
+    def remove_container(self, name: str, *, force: bool = True) -> str:
+        response = self._client.delete(f"/containers/{name}", params={"force": force, "v": False})
+        if response.status_code == 204:
+            return f"Removed container {name}."
+        if response.status_code == 404:
+            return f"Container {name} was already removed."
+        raise DockerSocketError(
+            f"Could not remove container {name}.",
+            details=response.text.strip() or f"HTTP {response.status_code}",
+        )
+
+    def recreate_gateway_container(self, name: str) -> list[str]:
+        logs: list[str] = []
+        state = self.container_state(name)
+        if state not in ("missing", "unavailable"):
+            logs.append(f"Removing existing container {name} so it can be recreated with current settings...")
+            logs.append(self.remove_container(name))
+        logs.extend(self.create_gateway_container(name))
+        return logs
+
     def _app_network_name(self) -> str:
         hostname = socket.gethostname()
         response = self._client.get(f"/containers/{hostname}/json")
@@ -231,7 +271,7 @@ class DockerSocketClient:
             )
 
         logs.append(self.start_container(name))
-        logs.append("IB Gateway container started. Waiting for login and 2FA approval...")
+        logs.append("IB Gateway container started. Waiting for login in the GUI popup...")
         return logs
 
 
