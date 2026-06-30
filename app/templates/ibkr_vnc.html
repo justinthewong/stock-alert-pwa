@@ -61,6 +61,13 @@
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/api/ibkr/vnc/ws`;
 
+    let connected = false;
+
+    function showStatus(message) {
+      statusEl.hidden = false;
+      statusEl.textContent = message;
+    }
+
     try {
       const rfb = new RFB(screenEl, wsUrl, {
         credentials: { password: {{ vnc_password | tojson }} },
@@ -68,20 +75,27 @@
       rfb.scaleViewport = true;
       rfb.resizeSession = true;
       rfb.addEventListener('connect', () => {
+        connected = true;
         statusEl.hidden = true;
       });
       rfb.addEventListener('disconnect', (event) => {
-        statusEl.hidden = false;
-        statusEl.textContent = event.detail.clean
-          ? 'Disconnected from IB Gateway.'
-          : 'Lost connection to IB Gateway.';
+        if (event.detail.clean) {
+          showStatus('Disconnected from IB Gateway.');
+          return;
+        }
+        if (!connected) {
+          showStatus(
+            'Could not connect to IB Gateway. If this site uses HTTPS, ensure nginx has a WebSocket upgrade block for /api/ibkr/vnc/ws, then try again.'
+          );
+          return;
+        }
+        showStatus('Lost connection to IB Gateway. Close and reopen the login window to retry.');
       });
       rfb.addEventListener('securityfailure', () => {
-        statusEl.hidden = false;
-        statusEl.textContent = 'VNC authentication failed. Check VNC_SERVER_PASSWORD in .env.';
+        showStatus('VNC authentication failed. Check VNC_SERVER_PASSWORD in .env.');
       });
     } catch (error) {
-      statusEl.textContent = error.message || 'Could not start VNC viewer.';
+      showStatus(error.message || 'Could not start VNC viewer.');
     }
   </script>
 </body>
