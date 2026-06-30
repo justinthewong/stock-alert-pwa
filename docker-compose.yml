@@ -17,6 +17,7 @@ services:
       TWOFA_TIMEOUT_ACTION: ${TWOFA_TIMEOUT_ACTION:-restart}
       RELOGIN_AFTER_TWOFA_TIMEOUT: ${RELOGIN_AFTER_TWOFA_TIMEOUT:-yes}
       EXISTING_SESSION_DETECTED_ACTION: ${EXISTING_SESSION_DETECTED_ACTION:-primary}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
     ports:
       - "127.0.0.1:4001:4003"
       - "127.0.0.1:4002:4004"
@@ -32,6 +33,9 @@ services:
       IB_CLIENT_ID: ${IB_CLIENT_ID:-1}
       IB_TRADING_MODE: ${TRADING_MODE:-paper}
       IB_MAX_DEPTH_SYMBOLS: ${IB_MAX_DEPTH_SYMBOLS:-3}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+      IB_VNC_HOST: ${IB_VNC_HOST:-ib-gateway}
+      IB_VNC_PORT: ${IB_VNC_PORT:-5900}
     volumes:
       - ./data:/data
       - ./config/secrets.yaml:/app/config/secrets.yaml:ro

@@ -41,6 +41,9 @@ class IbkrSettings:
     client_id: int
     trading_mode: str
     max_depth_symbols: int
+    vnc_host: str
+    vnc_port: int
+    vnc_password: str
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,30 @@ class Settings:
     vapid: VapidSettings
     database: DatabaseSettings
     ibkr: IbkrSettings
+
+
+def _load_env_file(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+def _env_value(name: str, default: str = "") -> str:
+    if os.getenv(name):
+        return os.getenv(name, default)
+    dotenv = _load_env_file(Path("/app/.env"))
+    if name in dotenv:
+        return dotenv[name]
+    dotenv = _load_env_file(Path(".env"))
+    return dotenv.get(name, default)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -99,5 +126,8 @@ def get_settings() -> Settings:
             client_id=int(os.getenv("IB_CLIENT_ID", "1")),
             trading_mode=trading_mode,
             max_depth_symbols=int(os.getenv("IB_MAX_DEPTH_SYMBOLS", "3")),
+            vnc_host=_env_value("IB_VNC_HOST", os.getenv("IB_GATEWAY_HOST", "127.0.0.1")),
+            vnc_port=int(_env_value("IB_VNC_PORT", "5900")),
+            vnc_password=_env_value("VNC_SERVER_PASSWORD"),
         ),
     )

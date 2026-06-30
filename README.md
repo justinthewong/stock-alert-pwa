@@ -36,7 +36,7 @@ python scripts/generate_icons.py
 
 3. Fill in:
 
-- `.env` — IBKR username/password and gateway settings
+- `.env` — IBKR username/password, gateway settings, and `VNC_SERVER_PASSWORD` for the in-dashboard login popup
 - `config/secrets.yaml` — web login hash, VAPID keys, `base_url`, `secret_key`
 
 4. Start services:
@@ -49,7 +49,7 @@ This starts the web app and nginx only. The IB Gateway container is **not** star
 
 5. Open `https://your-domain/dashboard`, log in, and click **Connect IBKR**.
 
-6. Approve IBKR 2FA on your phone when prompted. The dashboard will show a connected status once login completes.
+6. A popup opens with the IB Gateway GUI. Approve push 2FA on your phone, or use **Login with Challenge/Response** in the popup if the push notification does not arrive. The dashboard shows a connected status once login completes.
 
 7. Enable notifications and create an ASX alert.
 
@@ -69,7 +69,9 @@ To start the gateway manually (equivalent to the dashboard button):
 docker compose --profile ibkr up -d ib-gateway
 ```
 
-Gateway API ports are bound to localhost only (`127.0.0.1:4001/4002`).
+Gateway API ports are bound to localhost only (`127.0.0.1:4001/4002`). VNC is **not** exposed publicly — the IB Gateway GUI is only reachable through the authenticated dashboard popup via an internal WebSocket proxy.
+
+Set `VNC_SERVER_PASSWORD` in `.env` to enable the GUI popup. This password is separate from your IBKR login and is used only for the in-container VNC server.
 
 ## Alert logic
 
