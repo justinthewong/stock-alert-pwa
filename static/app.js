@@ -65,13 +65,58 @@ async function loadAlerts() {
 
 let ibkrPollTimer = null;
 
+function formatApiError(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data.detail === 'string') return data.detail;
+  if (Array.isArray(data.detail)) {
+    return data.detail.map((item) => item.msg || JSON.stringify(item)).join('; ');
+  }
+  if (data.detail && typeof data.detail === 'object') {
+    return data.detail.message || data.detail.error || JSON.stringify(data.detail);
+  }
+  return data.message || data.error || fallback;
+}
+
+function setIbkrError(message) {
+  const errorEl = document.getElementById('ibkr-error');
+  if (!errorEl) return;
+  if (message) {
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+  } else {
+    errorEl.textContent = '';
+    errorEl.hidden = true;
+  }
+}
+
+function appendIbkrLog(lines) {
+  const logEl = document.getElementById('ibkr-log');
+  if (!logEl || !lines?.length) return;
+
+  const timestamp = new Date().toLocaleTimeString();
+  const block = lines.map((line) => `[${timestamp}] ${line}`).join('\n');
+  logEl.hidden = false;
+  logEl.textContent = logEl.textContent ? `${logEl.textContent}\n${block}` : block;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
 function updateIbkrUi(data) {
   const statusEl = document.getElementById('ibkr-status');
   const loginBtn = document.getElementById('ibkr-login-btn');
   if (!statusEl || !loginBtn) return;
 
-  statusEl.textContent = data.message;
-  statusEl.className = `status ${data.status}`;
+  statusEl.textContent = data.message || 'Unknown status';
+  statusEl.className = `status ${data.status || 'disconnected'}`;
+
+  if (data.steps?.length) {
+    appendIbkrLog(data.steps);
+  }
+
+  if (data.error) {
+    setIbkrError(data.error);
+  } else if (data.status !== 'error') {
+    setIbkrError('');
+  }
 
   if (data.status === 'connected') {
     loginBtn.hidden = true;
@@ -93,6 +138,7 @@ function stopIbkrPolling() {
 function startIbkrPolling() {
   stopIbkrPolling();
   const startedAt = Date.now();
+  appendIbkrLog(['Polling for IBKR connection status...']);
   ibkrPollTimer = setInterval(async () => {
     if (Date.now() - startedAt > 120000) {
       stopIbkrPolling();
@@ -101,6 +147,7 @@ function startIbkrPolling() {
         statusEl.textContent = 'Connection timed out. Try Connect IBKR again and approve 2FA on your phone.';
         statusEl.className = 'status error';
       }
+      setIbkrError('No connection after 2 minutes. Check gateway logs: docker logs stock-alert-ib-gateway');
       const loginBtn = document.getElementById('ibkr-login-btn');
       if (loginBtn) {
         loginBtn.hidden = false;
@@ -113,12 +160,16 @@ function startIbkrPolling() {
     try {
       const response = await api('/api/ibkr/status');
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(formatApiError(data, 'Could not read IBKR status.'));
+      }
       updateIbkrUi(data);
       if (data.status === 'connected' || data.status === 'error') {
         stopIbkrPolling();
       }
     } catch (error) {
       console.error(error);
+      appendIbkrLog([`Status poll failed: ${error.message}`]);
     }
   }, 3000);
 }
@@ -126,6 +177,9 @@ function startIbkrPolling() {
 async function loadIbkrStatus() {
   const response = await api('/api/ibkr/status');
   const data = await response.json();
+  if (!response.ok) {
+    throw new Error(formatApiError(data, 'Could not load IBKR status.'));
+  }
   updateIbkrUi(data);
   if (data.status === 'connecting') {
     startIbkrPolling();
@@ -135,6 +189,9 @@ async function loadIbkrStatus() {
 async function connectIbkr() {
   const loginBtn = document.getElementById('ibkr-login-btn');
   const statusEl = document.getElementById('ibkr-status');
+  setIbkrError('');
+  appendIbkrLog(['Button clicked. Sending login request to server...']);
+
   if (loginBtn) {
     loginBtn.disabled = true;
     loginBtn.textContent = 'Connecting...';
@@ -144,12 +201,38 @@ async function connectIbkr() {
     statusEl.className = 'status connecting';
   }
 
-  const response = await api('/api/ibkr/login', { method: 'POST' });
-  const data = await response.json();
-  if (!response.ok) {
-    const detail = data.detail || 'Could not start IBKR login.';
+  let response;
+  let data = {};
+  try {
+    response = await api('/api/ibkr/login', { method: 'POST' });
+    data = await response.json().catch(() => ({}));
+  } catch (error) {
+    const message = error.message || 'Network error while contacting server.';
+    appendIbkrLog([`Request failed: ${message}`]);
+    setIbkrError(message);
     if (statusEl) {
-      statusEl.textContent = detail;
+      statusEl.textContent = 'Could not contact server.';
+      statusEl.className = 'status error';
+    }
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Connect IBKR';
+    }
+    return;
+  }
+
+  if (!response.ok) {
+    const detail = data.detail;
+    const steps = detail?.steps || data.steps || [];
+    const errorMessage = formatApiError(data, 'Could not start IBKR login.');
+    if (steps.length) {
+      appendIbkrLog(steps);
+    } else {
+      appendIbkrLog([errorMessage]);
+    }
+    setIbkrError(detail?.error || data.error || errorMessage);
+    if (statusEl) {
+      statusEl.textContent = detail?.message || errorMessage;
       statusEl.className = 'status error';
     }
     if (loginBtn) {
@@ -228,15 +311,26 @@ function setupIosBanner() {
 document.addEventListener('DOMContentLoaded', () => {
   setupIosBanner();
   loadAlerts().catch(console.error);
-  loadIbkrStatus().catch(console.error);
+  loadIbkrStatus().catch((error) => {
+    console.error(error);
+    appendIbkrLog([`Initial status check failed: ${error.message}`]);
+    setIbkrError(error.message);
+    const statusEl = document.getElementById('ibkr-status');
+    if (statusEl) {
+      statusEl.textContent = 'Could not load IBKR status.';
+      statusEl.className = 'status error';
+    }
+  });
 
   const ibkrLoginBtn = document.getElementById('ibkr-login-btn');
   if (ibkrLoginBtn) {
     ibkrLoginBtn.addEventListener('click', () => {
       connectIbkr().catch((error) => {
+        appendIbkrLog([`Unexpected error: ${error.message}`]);
+        setIbkrError(error.message);
         const statusEl = document.getElementById('ibkr-status');
         if (statusEl) {
-          statusEl.textContent = error.message;
+          statusEl.textContent = 'Unexpected error while connecting.';
           statusEl.className = 'status error';
         }
         ibkrLoginBtn.disabled = false;

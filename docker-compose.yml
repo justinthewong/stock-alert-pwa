@@ -1,3 +1,5 @@
+name: stock-alert
+
 services:
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable

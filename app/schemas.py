@@ -63,3 +63,8 @@ class IbkrStatusResponse(BaseModel):
     status: IbkrConnectionStatus
     message: str
     gateway_running: bool
+    steps: list[str] = []
+    error: str | None = None
+    container_state: str | None = None
+    docker_available: bool = False
+    api_port_open: bool = False
