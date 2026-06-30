@@ -153,8 +153,13 @@ function maybeOpenIbkrVncModal(data) {
 function updateStopButton(data) {
   const stopBtn = document.getElementById('ibkr-stop-btn');
   if (!stopBtn) return;
-  const running = Boolean(data?.gateway_running) || data?.container_state === 'running';
-  stopBtn.hidden = !running;
+  const running = Boolean(data?.gateway_running)
+    || data?.container_state === 'running'
+    || data?.status === 'connected'
+    || data?.status === 'connecting';
+  stopBtn.hidden = false;
+  stopBtn.disabled = !running;
+  stopBtn.title = running ? '' : 'The gateway is not running.';
 }
 
 function updateIbkrUi(data) {
@@ -184,6 +189,7 @@ function updateIbkrUi(data) {
     if (vncOpenBtn) {
       vncOpenBtn.hidden = true;
     }
+    updateStopButton(data);
     return;
   }
 

@@ -114,6 +114,11 @@ button.secondary.danger {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .grid {
   display: grid;
   gap: 0.9rem;
