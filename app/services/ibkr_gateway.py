@@ -8,7 +8,7 @@ from typing import Literal
 
 from app.config import get_settings, get_vnc_password
 from app.services.docker_socket import DockerSocketClient, DockerSocketError, get_docker_client
-from app.worker import is_ibkr_connected
+from app.worker import disconnect_ibkr_client, is_ibkr_connected
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +292,10 @@ def trigger_gateway_stop() -> IbkrLoginResult:
         if state in ("missing", "exited"):
             message = "IB Gateway is not running."
             _append_step(steps, message)
+            disconnect_ibkr_client()
             return IbkrLoginResult(ok=True, message=message, steps=steps)
 
-        if state == "running":
+        if state in ("running", "unavailable"):
             try:
                 _append_step(steps, client.stop_container(_container_name()))
             except DockerSocketError as exc:
@@ -305,6 +306,7 @@ def trigger_gateway_stop() -> IbkrLoginResult:
                 return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
             message = "IB Gateway stopped."
             _append_step(steps, message)
+            disconnect_ibkr_client()
             return IbkrLoginResult(ok=True, message=message, steps=steps)
 
     message = "Could not determine gateway container state."

@@ -85,12 +85,18 @@ async def ibkr_stop(_: str = Depends(require_auth)):
             },
         )
 
+    response_status = status_details.status
+    response_error = status_details.error or result.error
+    if not status_details.gateway_running:
+        response_status = "disconnected"
+        response_error = None
+
     return IbkrStatusResponse(
-        status=status_details.status,
+        status=response_status,
         message=result.message,
         gateway_running=status_details.gateway_running,
         steps=result.steps,
-        error=status_details.error or result.error,
+        error=response_error,
         container_state=status_details.container_state,
         docker_available=status_details.docker_available,
         api_port_open=status_details.api_port_open,

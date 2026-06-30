@@ -155,6 +155,12 @@ def get_worker() -> DepthWorker | None:
     return _worker
 
 
+def disconnect_ibkr_client() -> None:
+    worker = get_worker()
+    if worker is not None:
+        worker.client.disconnect()
+
+
 def is_ibkr_connected() -> bool:
     try:
         return _worker is not None and _worker.client.connected

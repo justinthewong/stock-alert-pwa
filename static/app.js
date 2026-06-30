@@ -153,10 +153,7 @@ function maybeOpenIbkrVncModal(data) {
 function updateStopButton(data) {
   const stopBtn = document.getElementById('ibkr-stop-btn');
   if (!stopBtn) return;
-  const running = Boolean(data?.gateway_running)
-    || data?.container_state === 'running'
-    || data?.status === 'connected'
-    || data?.status === 'connecting';
+  const running = Boolean(data?.gateway_running) || data?.container_state === 'running';
   stopBtn.hidden = false;
   stopBtn.disabled = !running;
   stopBtn.title = running ? '' : 'The gateway is not running.';
@@ -392,7 +389,6 @@ async function stopIbkrGateway() {
     loginBtn.textContent = 'Connect IBKR';
   }
   if (stopBtn) {
-    stopBtn.disabled = false;
     stopBtn.textContent = 'Stop gateway';
   }
 }
