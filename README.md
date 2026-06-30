@@ -84,6 +84,17 @@ Depth is streamed via `reqMktDepth(..., isSmartDepth=True)` against ASX symbols.
 
 The included Nginx config serves HTTP on port 80. Obtain certificates with Certbot and update `deploy/nginx/default.conf` to terminate TLS on port 443.
 
+Use [`deploy/nginx/default.conf.https.example`](deploy/nginx/default.conf.https.example) as a starting point. If you customized `default.conf` for TLS, keep your HTTPS settings and add the `/api/ibkr/vnc/ws` location block from the example (required for the IB Gateway GUI popup).
+
+If `git pull` fails with local changes to `deploy/nginx/default.conf`:
+
+```bash
+git diff deploy/nginx/default.conf   # review your local TLS edits
+git stash push -m "nginx tls" deploy/nginx/default.conf
+git pull origin master
+git stash pop                        # re-apply your edits; resolve conflicts if any
+```
+
 Set `app.secure_cookies: true` in `config/secrets.yaml` when serving over HTTPS.
 
 ## iPhone notifications
