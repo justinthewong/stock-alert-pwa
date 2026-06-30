@@ -26,7 +26,10 @@
     <section class="card">
       <div class="row-between">
         <h2>IBKR connection</h2>
-        <button id="ibkr-login-btn" type="button">Connect IBKR</button>
+        <div class="ibkr-actions">
+          <button id="ibkr-vnc-open-btn" type="button" class="secondary" hidden>Open login window</button>
+          <button id="ibkr-login-btn" type="button">Connect IBKR</button>
+        </div>
       </div>
       <p id="ibkr-status" class="status disconnected">Checking IBKR status...</p>
       <p id="ibkr-error" class="error" hidden></p>

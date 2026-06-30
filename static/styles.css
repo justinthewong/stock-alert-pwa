@@ -128,6 +128,12 @@ button.secondary {
   flex-wrap: wrap;
 }
 
+.ibkr-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .banner {
   margin-top: 0.5rem;
   background: rgba(56, 189, 248, 0.12);

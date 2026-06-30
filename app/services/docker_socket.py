@@ -201,6 +201,9 @@ class DockerSocketClient:
     def _gateway_env(self) -> list[str]:
         compose_path = os.getenv("COMPOSE_FILE", "/app/docker-compose.yml")
         env_values = self._load_env_file("/app/.env")
+        for key, value in os.environ.items():
+            if value:
+                env_values[key] = value
         if not os.path.exists(compose_path):
             raise DockerSocketError(f"Compose file not found at {compose_path}.")
 

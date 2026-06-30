@@ -69,3 +69,4 @@ class IbkrStatusResponse(BaseModel):
     docker_available: bool = False
     api_port_open: bool = False
     vnc_available: bool = False
+    vnc_configured: bool = False
