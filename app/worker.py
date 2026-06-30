@@ -156,7 +156,11 @@ def get_worker() -> DepthWorker | None:
 
 
 def is_ibkr_connected() -> bool:
-    return _worker is not None and _worker.client.connected
+    try:
+        return _worker is not None and _worker.client.connected
+    except Exception:
+        logger.exception("Failed checking IBKR worker connection state")
+        return False
 
 
 async def run_depth_worker() -> None:
