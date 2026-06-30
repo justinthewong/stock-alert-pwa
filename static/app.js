@@ -137,8 +137,15 @@ function closeIbkrVncModal() {
   }
 }
 
+function shouldOpenIbkrVncModal(data) {
+  if (!data?.gateway_running || data.status === 'connected' || data.status === 'error') {
+    return false;
+  }
+  return Boolean(data.vnc_available || data.vnc_configured);
+}
+
 function maybeOpenIbkrVncModal(data) {
-  if (data?.vnc_available && data.status === 'connecting') {
+  if (shouldOpenIbkrVncModal(data)) {
     openIbkrVncModal();
   }
 }
@@ -146,6 +153,7 @@ function maybeOpenIbkrVncModal(data) {
 function updateIbkrUi(data) {
   const statusEl = document.getElementById('ibkr-status');
   const loginBtn = document.getElementById('ibkr-login-btn');
+  const vncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
   if (!statusEl || !loginBtn) return;
 
   statusEl.textContent = data.message || 'Unknown status';
@@ -176,6 +184,10 @@ function updateIbkrUi(data) {
     loginBtn.textContent = 'Recreate Gateway';
   } else {
     loginBtn.textContent = 'Connect IBKR';
+  }
+
+  if (vncOpenBtn) {
+    vncOpenBtn.hidden = !shouldOpenIbkrVncModal(data);
   }
 
   maybeOpenIbkrVncModal(data);
@@ -237,6 +249,8 @@ async function loadIbkrStatus() {
   if (data.status === 'connecting') {
     maybeOpenIbkrVncModal(data);
     startIbkrPolling();
+  } else if (shouldOpenIbkrVncModal(data)) {
+    maybeOpenIbkrVncModal(data);
   }
 }
 
@@ -300,6 +314,9 @@ async function connectIbkr() {
   updateIbkrUi(data);
   if (data.status !== 'connected') {
     startIbkrPolling();
+    if (shouldOpenIbkrVncModal(data)) {
+      setTimeout(() => openIbkrVncModal(), 1500);
+    }
   }
 }
 
@@ -391,6 +408,13 @@ document.addEventListener('DOMContentLoaded', () => {
         ibkrLoginBtn.disabled = false;
         ibkrLoginBtn.textContent = 'Connect IBKR';
       });
+    });
+  }
+
+  const ibkrVncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
+  if (ibkrVncOpenBtn) {
+    ibkrVncOpenBtn.addEventListener('click', () => {
+      openIbkrVncModal();
     });
   }
 

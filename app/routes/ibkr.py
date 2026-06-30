@@ -22,6 +22,7 @@ def _to_response(details) -> IbkrStatusResponse:
         docker_available=details.docker_available,
         api_port_open=details.api_port_open,
         vnc_available=details.vnc_available,
+        vnc_configured=bool(get_vnc_password()),
     )
 
 
@@ -45,7 +46,9 @@ async def ibkr_login(_: str = Depends(require_auth)):
             },
         )
 
-    response_status = status_details.status if status_details.status != "disconnected" else "connecting"
+    response_status = status_details.status
+    if response_status == "disconnected" and status_details.gateway_running:
+        response_status = "connecting"
     response_message = result.message if status_details.status == "connected" else status_details.message
 
     return IbkrStatusResponse(
@@ -58,6 +61,7 @@ async def ibkr_login(_: str = Depends(require_auth)):
         docker_available=status_details.docker_available,
         api_port_open=status_details.api_port_open,
         vnc_available=status_details.vnc_available,
+        vnc_configured=bool(get_vnc_password()),
     )
 
 
