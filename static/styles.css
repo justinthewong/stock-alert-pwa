@@ -196,6 +196,22 @@ button.secondary {
   color: var(--muted);
 }
 
+.ibkr-log {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.65);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .alert-actions {
   display: flex;
   justify-content: flex-end;
