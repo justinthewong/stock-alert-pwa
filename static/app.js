@@ -185,4 +185,20 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   }
+
+  const testPushBtn = document.getElementById('test-push-btn');
+  if (testPushBtn) {
+    testPushBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('push-status');
+      try {
+        const response = await api('/api/push/test', { method: 'POST' });
+        const data = await response.json();
+        statusEl.textContent = data.sent > 0
+          ? `Test notification sent to ${data.sent} device(s).`
+          : 'No devices are subscribed yet. Tap "Enable notifications" first.';
+      } catch (error) {
+        statusEl.textContent = error.message;
+      }
+    });
+  }
 });
