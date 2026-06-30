@@ -83,7 +83,10 @@
   <dialog id="ibkr-vnc-modal" class="ibkr-vnc-modal">
     <div class="modal-header">
       <h2>IB Gateway login</h2>
-      <button id="ibkr-vnc-close" type="button" class="secondary">Close</button>
+      <div class="modal-actions">
+        <button id="ibkr-vnc-stop-btn" type="button" class="secondary danger">Stop gateway</button>
+        <button id="ibkr-vnc-close" type="button" class="secondary">Close</button>
+      </div>
     </div>
     <p class="muted">Complete 2FA or challenge/response in the window below.</p>
     <iframe id="ibkr-vnc-frame" src="about:blank" title="IB Gateway"></iframe>

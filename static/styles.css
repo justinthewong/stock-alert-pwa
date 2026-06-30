@@ -272,6 +272,12 @@ button:disabled {
   margin: 0;
 }
 
+.ibkr-vnc-modal .modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .ibkr-vnc-modal .muted {
   margin: 0;
   padding: 0 1.25rem 0.75rem;
