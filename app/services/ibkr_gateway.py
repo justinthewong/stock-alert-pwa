@@ -55,7 +55,7 @@ def _needs_gateway_recreate(client: DockerSocketClient) -> bool:
 
 def _connecting_status_message(vnc_available: bool, gateway_container_vnc: bool) -> tuple[str, str | None]:
     if vnc_available:
-        return "Gateway is running. Complete login in the popup window.", None
+        return "Gateway is running. Click Open login window to complete login.", None
     if _vnc_configured() and not gateway_container_vnc:
         return (
             "Gateway is running but needs to be recreated for the GUI popup.",

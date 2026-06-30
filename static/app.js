@@ -122,9 +122,26 @@ function appendIbkrLog(lines) {
 function openIbkrVncModal() {
   const modal = document.getElementById('ibkr-vnc-modal');
   const frame = document.getElementById('ibkr-vnc-frame');
-  if (!modal || !frame || modal.open) return;
+  if (!modal || !frame) {
+    return false;
+  }
+  if (modal.open) {
+    return true;
+  }
+  if (typeof modal.showModal !== 'function') {
+    setIbkrError('This browser cannot open the login popup. Try opening /ibkr/vnc in a new tab.');
+    return false;
+  }
+
   frame.src = '/ibkr/vnc';
-  modal.showModal();
+  try {
+    modal.showModal();
+  } catch (error) {
+    setIbkrError('Could not open the login window. Click Open login window again or try another browser.');
+    return false;
+  }
+
+  return modal.open;
 }
 
 function closeIbkrVncModal() {
@@ -144,9 +161,16 @@ function shouldOpenIbkrVncModal(data) {
   return Boolean(data.vnc_available || data.vnc_configured);
 }
 
-function maybeOpenIbkrVncModal(data) {
-  if (shouldOpenIbkrVncModal(data)) {
-    openIbkrVncModal();
+function updateIbkrVncLoginUi(data) {
+  const vncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
+  const prompt = document.getElementById('ibkr-vnc-prompt');
+  const needsVncLogin = shouldOpenIbkrVncModal(data);
+
+  if (vncOpenBtn) {
+    vncOpenBtn.hidden = !needsVncLogin;
+  }
+  if (prompt) {
+    prompt.hidden = !needsVncLogin;
   }
 }
 
@@ -207,6 +231,10 @@ function updateIbkrUi(data) {
     if (vncOpenBtn) {
       vncOpenBtn.hidden = true;
     }
+    const prompt = document.getElementById('ibkr-vnc-prompt');
+    if (prompt) {
+      prompt.hidden = true;
+    }
     updateStopButton(data);
     return;
   }
@@ -222,11 +250,7 @@ function updateIbkrUi(data) {
     loginBtn.textContent = 'Connect IBKR';
   }
 
-  if (vncOpenBtn) {
-    vncOpenBtn.hidden = !shouldOpenIbkrVncModal(data);
-  }
-
-  maybeOpenIbkrVncModal(data);
+  updateIbkrVncLoginUi(data);
 }
 
 function stopIbkrPolling() {
@@ -283,10 +307,7 @@ async function loadIbkrStatus() {
   }
   updateIbkrUi(data);
   if (data.status === 'connecting') {
-    maybeOpenIbkrVncModal(data);
     startIbkrPolling();
-  } else if (shouldOpenIbkrVncModal(data)) {
-    maybeOpenIbkrVncModal(data);
   }
 }
 
@@ -350,9 +371,6 @@ async function connectIbkr() {
   updateIbkrUi(data);
   if (data.status !== 'connected') {
     startIbkrPolling();
-    if (shouldOpenIbkrVncModal(data)) {
-      setTimeout(() => openIbkrVncModal(), 1500);
-    }
   }
 }
 
@@ -494,7 +512,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const ibkrVncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
   if (ibkrVncOpenBtn) {
     ibkrVncOpenBtn.addEventListener('click', () => {
-      openIbkrVncModal();
+      if (!openIbkrVncModal()) {
+        appendIbkrLog(['Could not open the IB Gateway login window.']);
+      }
     });
   }
 

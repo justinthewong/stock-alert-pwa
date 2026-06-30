@@ -27,12 +27,15 @@
       <div class="row-between">
         <h2>IBKR connection</h2>
         <div class="ibkr-actions">
-          <button id="ibkr-vnc-open-btn" type="button" class="secondary" hidden>Open login window</button>
+          <button id="ibkr-vnc-open-btn" type="button" hidden>Open login window</button>
           <button id="ibkr-stop-btn" type="button" class="secondary danger" disabled>Stop gateway</button>
           <button id="ibkr-login-btn" type="button">Connect IBKR</button>
         </div>
       </div>
       <p id="ibkr-status" class="status disconnected">Checking IBKR status...</p>
+      <p id="ibkr-vnc-prompt" class="ibkr-vnc-prompt" hidden>
+        <strong>Action required:</strong> Click <strong>Open login window</strong> to complete IBKR login and 2FA in the popup.
+      </p>
       <p id="ibkr-error" class="error" hidden></p>
       <pre id="ibkr-log" class="ibkr-log" hidden></pre>
     </section>
