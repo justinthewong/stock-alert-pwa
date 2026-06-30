@@ -70,3 +70,4 @@ class IbkrStatusResponse(BaseModel):
     api_port_open: bool = False
     vnc_available: bool = False
     vnc_configured: bool = False
+    vnc_login_required: bool = False

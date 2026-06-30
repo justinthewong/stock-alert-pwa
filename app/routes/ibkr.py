@@ -16,9 +16,18 @@ from app.services.vnc_proxy import relay_vnc_websocket
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
 
 
+def _vnc_login_required(details) -> bool:
+    if details.status in ("connected", "error") or not details.gateway_running:
+        return False
+    return bool(details.vnc_available or get_vnc_password())
+
+
 def _to_response(details) -> IbkrStatusResponse:
+    status = details.status
+    if status == "disconnected" and details.gateway_running:
+        status = "connecting"
     return IbkrStatusResponse(
-        status=details.status,
+        status=status,
         message=details.message,
         gateway_running=details.gateway_running,
         steps=details.steps,
@@ -28,6 +37,7 @@ def _to_response(details) -> IbkrStatusResponse:
         api_port_open=details.api_port_open,
         vnc_available=details.vnc_available,
         vnc_configured=bool(get_vnc_password()),
+        vnc_login_required=_vnc_login_required(details),
     )
 
 
@@ -67,6 +77,7 @@ async def ibkr_login(_: str = Depends(require_auth)):
         api_port_open=status_details.api_port_open,
         vnc_available=status_details.vnc_available,
         vnc_configured=bool(get_vnc_password()),
+        vnc_login_required=_vnc_login_required(status_details),
     )
 
 
@@ -102,6 +113,7 @@ async def ibkr_stop(_: str = Depends(require_auth)):
         api_port_open=status_details.api_port_open,
         vnc_available=status_details.vnc_available,
         vnc_configured=bool(get_vnc_password()),
+        vnc_login_required=False,
     )
 
 

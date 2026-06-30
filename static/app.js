@@ -154,23 +154,24 @@ function closeIbkrVncModal() {
   }
 }
 
-function shouldOpenIbkrVncModal(data) {
-  if (!data?.gateway_running || data.status === 'connected' || data.status === 'error') {
+function needsIbkrVncLogin(data) {
+  if (data?.status === 'connected' || data?.status === 'error') {
     return false;
   }
-  return Boolean(data.vnc_available || data.vnc_configured);
+  if (data?.vnc_login_required) {
+    return true;
+  }
+  if (typeof data?.message === 'string' && data.message.includes('Open login window')) {
+    return true;
+  }
+  const gatewayUp = Boolean(data?.gateway_running) || data?.container_state === 'running';
+  return gatewayUp && Boolean(data?.vnc_available || data?.vnc_configured);
 }
 
 function updateIbkrVncLoginUi(data) {
-  const vncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
   const prompt = document.getElementById('ibkr-vnc-prompt');
-  const needsVncLogin = shouldOpenIbkrVncModal(data);
-
-  if (vncOpenBtn) {
-    vncOpenBtn.hidden = !needsVncLogin;
-  }
   if (prompt) {
-    prompt.hidden = !needsVncLogin;
+    prompt.hidden = !needsIbkrVncLogin(data);
   }
 }
 
@@ -207,7 +208,6 @@ function updateStopButton(data) {
 function updateIbkrUi(data) {
   const statusEl = document.getElementById('ibkr-status');
   const loginBtn = document.getElementById('ibkr-login-btn');
-  const vncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
   if (!statusEl || !loginBtn) return;
 
   statusEl.textContent = data.message || 'Unknown status';
@@ -228,9 +228,6 @@ function updateIbkrUi(data) {
   if (data.status === 'connected') {
     closeIbkrVncModal();
     loginBtn.hidden = true;
-    if (vncOpenBtn) {
-      vncOpenBtn.hidden = true;
-    }
     const prompt = document.getElementById('ibkr-vnc-prompt');
     if (prompt) {
       prompt.hidden = true;
@@ -509,14 +506,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  const ibkrVncOpenBtn = document.getElementById('ibkr-vnc-open-btn');
-  if (ibkrVncOpenBtn) {
-    ibkrVncOpenBtn.addEventListener('click', () => {
+  const ibkrVncOpenButtons = document.querySelectorAll('.ibkr-vnc-open-btn');
+  ibkrVncOpenButtons.forEach((button) => {
+    button.addEventListener('click', () => {
       if (!openIbkrVncModal()) {
         appendIbkrLog(['Could not open the IB Gateway login window.']);
       }
     });
-  }
+  });
 
   function handleIbkrStopError(error) {
     appendIbkrLog([`Unexpected error: ${error.message}`]);
