@@ -356,14 +356,24 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
     connecting_message, connecting_error = _connecting_status_message(vnc_available, gateway_container_vnc)
 
     if gateway_running and not api_port_open:
+        if vnc_available:
+            return IbkrStatusDetails(
+                status="connecting",
+                message=connecting_message,
+                gateway_running=True,
+                container_state=container_state,
+                docker_available=docker_available,
+                api_port_open=False,
+                vnc_available=True,
+            )
         return IbkrStatusDetails(
-            status="connecting",
+            status="disconnected",
             message=connecting_message,
             gateway_running=True,
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=False,
-            vnc_available=vnc_available,
+            vnc_available=False,
             error=connecting_error,
         )
 

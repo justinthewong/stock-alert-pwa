@@ -168,8 +168,15 @@ function updateIbkrUi(data) {
   }
 
   loginBtn.hidden = false;
-  loginBtn.disabled = data.status === 'connecting';
-  loginBtn.textContent = data.status === 'connecting' ? 'Connecting...' : 'Connect IBKR';
+  const actionRequired = Boolean(data.error) && data.status === 'connecting' && !data.vnc_available;
+  loginBtn.disabled = data.status === 'connecting' && !actionRequired;
+  if (data.status === 'connecting' && !actionRequired) {
+    loginBtn.textContent = 'Connecting...';
+  } else if (data.gateway_running && data.error && !data.vnc_available) {
+    loginBtn.textContent = 'Recreate Gateway';
+  } else {
+    loginBtn.textContent = 'Connect IBKR';
+  }
 
   maybeOpenIbkrVncModal(data);
 }
