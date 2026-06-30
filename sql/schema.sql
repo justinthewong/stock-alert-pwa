@@ -29,5 +29,5 @@ CREATE TABLE IF NOT EXISTS alert_log (
     event VARCHAR(64) NOT NULL,
     detail TEXT,
     created_at DATETIME NOT NULL,
-    FOREIGN KEY(alert_id) REFERENCES alerts (id)
+    FOREIGN KEY(alert_id) REFERENCES alerts (id) ON DELETE CASCADE
 );
