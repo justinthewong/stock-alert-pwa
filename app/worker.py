@@ -151,6 +151,14 @@ class DepthWorker:
 _worker: DepthWorker | None = None
 
 
+def get_worker() -> DepthWorker | None:
+    return _worker
+
+
+def is_ibkr_connected() -> bool:
+    return _worker is not None and _worker.client.connected
+
+
 async def run_depth_worker() -> None:
     from ib_insync import util
 

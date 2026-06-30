@@ -45,17 +45,29 @@ python scripts/generate_icons.py
 docker compose up -d --build
 ```
 
-5. Approve IBKR 2FA on your phone when the gateway container starts.
+This starts the web app and nginx only. The IB Gateway container is **not** started automatically.
 
-6. Open `https://your-domain/dashboard`, log in, enable notifications, and create an ASX alert.
+5. Open `https://your-domain/dashboard`, log in, and click **Connect IBKR**.
+
+6. Approve IBKR 2FA on your phone when prompted. The dashboard will show a connected status once login completes.
+
+7. Enable notifications and create an ASX alert.
 
 ## Services
 
 | Service | Purpose |
 |---|---|
-| `ib-gateway` | IB Gateway + IBC auto-login |
+| `ib-gateway` | IB Gateway + IBC auto-login (started on demand via dashboard) |
 | `app` | FastAPI + depth worker + SQLite |
 | `nginx` | Reverse proxy (add TLS certs in `deploy/nginx/certs`) |
+
+The `app` container mounts the Docker socket so authenticated dashboard users can start or restart `ib-gateway` on demand. This is intended for a single-user VPS deployment.
+
+To start the gateway manually (equivalent to the dashboard button):
+
+```bash
+docker compose --profile ibkr up -d ib-gateway
+```
 
 Gateway API ports are bound to localhost only (`127.0.0.1:4001/4002`).
 
@@ -85,7 +97,7 @@ Copy `data/alerts.db` periodically.
 
 ## Local development (without IB Gateway)
 
-The app starts without IBKR connectivity; the worker retries in the background. For UI testing only, you can run:
+The app starts without IBKR connectivity; the worker retries in the background. The dashboard **Connect IBKR** button requires Docker socket access to start the gateway container. For UI testing only, you can run:
 
 ```bash
 export SECRETS_PATH=config/secrets.yaml

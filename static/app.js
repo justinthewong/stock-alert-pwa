@@ -63,6 +63,108 @@ async function loadAlerts() {
   renderAlerts(alerts);
 }
 
+let ibkrPollTimer = null;
+
+function updateIbkrUi(data) {
+  const statusEl = document.getElementById('ibkr-status');
+  const loginBtn = document.getElementById('ibkr-login-btn');
+  if (!statusEl || !loginBtn) return;
+
+  statusEl.textContent = data.message;
+  statusEl.className = `status ${data.status}`;
+
+  if (data.status === 'connected') {
+    loginBtn.hidden = true;
+    return;
+  }
+
+  loginBtn.hidden = false;
+  loginBtn.disabled = data.status === 'connecting';
+  loginBtn.textContent = data.status === 'connecting' ? 'Connecting...' : 'Connect IBKR';
+}
+
+function stopIbkrPolling() {
+  if (ibkrPollTimer !== null) {
+    clearInterval(ibkrPollTimer);
+    ibkrPollTimer = null;
+  }
+}
+
+function startIbkrPolling() {
+  stopIbkrPolling();
+  const startedAt = Date.now();
+  ibkrPollTimer = setInterval(async () => {
+    if (Date.now() - startedAt > 120000) {
+      stopIbkrPolling();
+      const statusEl = document.getElementById('ibkr-status');
+      if (statusEl) {
+        statusEl.textContent = 'Connection timed out. Try Connect IBKR again and approve 2FA on your phone.';
+        statusEl.className = 'status error';
+      }
+      const loginBtn = document.getElementById('ibkr-login-btn');
+      if (loginBtn) {
+        loginBtn.hidden = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Connect IBKR';
+      }
+      return;
+    }
+
+    try {
+      const response = await api('/api/ibkr/status');
+      const data = await response.json();
+      updateIbkrUi(data);
+      if (data.status === 'connected' || data.status === 'error') {
+        stopIbkrPolling();
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }, 3000);
+}
+
+async function loadIbkrStatus() {
+  const response = await api('/api/ibkr/status');
+  const data = await response.json();
+  updateIbkrUi(data);
+  if (data.status === 'connecting') {
+    startIbkrPolling();
+  }
+}
+
+async function connectIbkr() {
+  const loginBtn = document.getElementById('ibkr-login-btn');
+  const statusEl = document.getElementById('ibkr-status');
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Connecting...';
+  }
+  if (statusEl) {
+    statusEl.textContent = 'Starting IB Gateway...';
+    statusEl.className = 'status connecting';
+  }
+
+  const response = await api('/api/ibkr/login', { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) {
+    const detail = data.detail || 'Could not start IBKR login.';
+    if (statusEl) {
+      statusEl.textContent = detail;
+      statusEl.className = 'status error';
+    }
+    if (loginBtn) {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Connect IBKR';
+    }
+    return;
+  }
+
+  updateIbkrUi(data);
+  if (data.status !== 'connected') {
+    startIbkrPolling();
+  }
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -126,6 +228,22 @@ function setupIosBanner() {
 document.addEventListener('DOMContentLoaded', () => {
   setupIosBanner();
   loadAlerts().catch(console.error);
+  loadIbkrStatus().catch(console.error);
+
+  const ibkrLoginBtn = document.getElementById('ibkr-login-btn');
+  if (ibkrLoginBtn) {
+    ibkrLoginBtn.addEventListener('click', () => {
+      connectIbkr().catch((error) => {
+        const statusEl = document.getElementById('ibkr-status');
+        if (statusEl) {
+          statusEl.textContent = error.message;
+          statusEl.className = 'status error';
+        }
+        ibkrLoginBtn.disabled = false;
+        ibkrLoginBtn.textContent = 'Connect IBKR';
+      });
+    });
+  }
 
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
