@@ -119,6 +119,34 @@ function appendIbkrLog(lines) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function openIbkrVncModal() {
+  const modal = document.getElementById('ibkr-vnc-modal');
+  const frame = document.getElementById('ibkr-vnc-frame');
+  if (!modal || !frame || modal.open) return;
+  frame.src = '/ibkr/vnc';
+  modal.showModal();
+}
+
+function closeIbkrVncModal() {
+  const modal = document.getElementById('ibkr-vnc-modal');
+  const frame = document.getElementById('ibkr-vnc-frame');
+  if (!modal || !modal.open) return;
+  modal.close();
+  if (frame) {
+    frame.src = 'about:blank';
+  }
+}
+
+function maybeOpenIbkrVncModal(data) {
+  if (data?.vnc_available && data.status === 'connecting') {
+    openIbkrVncModal();
+    return;
+  }
+  if (data?.status === 'connecting' && !data?.vnc_available) {
+    setIbkrError('Set VNC_SERVER_PASSWORD in .env to enable the IB Gateway GUI popup.');
+  }
+}
+
 function updateIbkrUi(data) {
   const statusEl = document.getElementById('ibkr-status');
   const loginBtn = document.getElementById('ibkr-login-btn');
@@ -138,6 +166,7 @@ function updateIbkrUi(data) {
   }
 
   if (data.status === 'connected') {
+    closeIbkrVncModal();
     loginBtn.hidden = true;
     return;
   }
@@ -145,6 +174,8 @@ function updateIbkrUi(data) {
   loginBtn.hidden = false;
   loginBtn.disabled = data.status === 'connecting';
   loginBtn.textContent = data.status === 'connecting' ? 'Connecting...' : 'Connect IBKR';
+
+  maybeOpenIbkrVncModal(data);
 }
 
 function stopIbkrPolling() {
@@ -201,6 +232,7 @@ async function loadIbkrStatus() {
   }
   updateIbkrUi(data);
   if (data.status === 'connecting') {
+    maybeOpenIbkrVncModal(data);
     startIbkrPolling();
   }
 }
@@ -356,6 +388,20 @@ document.addEventListener('DOMContentLoaded', () => {
         ibkrLoginBtn.disabled = false;
         ibkrLoginBtn.textContent = 'Connect IBKR';
       });
+    });
+  }
+
+  const ibkrVncCloseBtn = document.getElementById('ibkr-vnc-close');
+  const ibkrVncModal = document.getElementById('ibkr-vnc-modal');
+  if (ibkrVncCloseBtn) {
+    ibkrVncCloseBtn.addEventListener('click', () => {
+      closeIbkrVncModal();
+    });
+  }
+  if (ibkrVncModal) {
+    ibkrVncModal.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeIbkrVncModal();
     });
   }
 

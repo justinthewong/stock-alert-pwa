@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.config import get_settings
+from app.config import get_settings
 from app.services.docker_socket import DockerSocketClient, DockerSocketError, get_docker_client
 from app.worker import is_ibkr_connected
 
@@ -34,10 +35,19 @@ class IbkrStatusDetails:
     container_state: GatewayContainerState = "unavailable"
     docker_available: bool = False
     api_port_open: bool = False
+    vnc_available: bool = False
 
 
 def _container_name() -> str:
     return os.getenv("IB_GATEWAY_CONTAINER", "stock-alert-ib-gateway")
+
+
+def _vnc_configured() -> bool:
+    return bool(get_settings().ibkr.vnc_password)
+
+
+def _vnc_available(gateway_running: bool) -> bool:
+    return _vnc_configured() and gateway_running
 
 
 def _append_step(steps: list[str], message: str) -> None:
@@ -91,6 +101,12 @@ def _validate_gateway_prerequisites(steps: list[str]) -> str | None:
     return None
 
 
+def _login_pending_message() -> str:
+    if _vnc_configured():
+        return "IB Gateway started. Complete login in the popup window."
+    return "IB Gateway started. Approve 2FA on your phone if prompted."
+
+
 def _create_gateway_container(client: DockerSocketClient, steps: list[str]) -> IbkrLoginResult:
     prerequisite_error = _validate_gateway_prerequisites(steps)
     if prerequisite_error:
@@ -111,7 +127,7 @@ def _create_gateway_container(client: DockerSocketClient, steps: list[str]) -> I
 
     return IbkrLoginResult(
         ok=True,
-        message="IB Gateway started. Approve 2FA on your phone if prompted.",
+        message=_login_pending_message(),
         steps=steps,
     )
 
@@ -157,10 +173,10 @@ def trigger_gateway_login() -> IbkrLoginResult:
                 if exc.details:
                     _append_step(steps, exc.details)
                 return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
-            _append_step(steps, "Container started. Approve 2FA on your phone if prompted.")
+            _append_step(steps, _login_pending_message())
             return IbkrLoginResult(
                 ok=True,
-                message="IB Gateway started. Approve 2FA on your phone if prompted.",
+                message=_login_pending_message(),
                 steps=steps,
             )
 
@@ -179,10 +195,11 @@ def trigger_gateway_login() -> IbkrLoginResult:
                 if exc.details:
                     _append_step(steps, exc.details)
                 return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
-            _append_step(steps, "Container restarted. Approve 2FA on your phone if prompted.")
+            message = "IB Gateway restarted. Complete login in the popup window." if _vnc_configured() else "IB Gateway restarted. Approve 2FA on your phone if prompted."
+            _append_step(steps, message)
             return IbkrLoginResult(
                 ok=True,
-                message="IB Gateway restarted. Approve 2FA on your phone if prompted.",
+                message=message,
                 steps=steps,
             )
 
@@ -221,6 +238,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
 
     gateway_running = container_state == "running"
     api_port_open = await is_api_port_open() if gateway_running else False
+    vnc_available = _vnc_available(gateway_running)
 
     if is_ibkr_connected():
         return IbkrStatusDetails(
@@ -230,6 +248,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=True,
+            vnc_available=vnc_available,
         )
 
     if not docker_available:
@@ -242,6 +261,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
                 container_state=container_state,
                 docker_available=False,
                 api_port_open=False,
+                vnc_available=False,
             )
         return IbkrStatusDetails(
             status="error",
@@ -251,6 +271,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             container_state=container_state,
             docker_available=False,
             api_port_open=False,
+            vnc_available=False,
         )
 
     if container_state == "exited":
@@ -262,6 +283,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=False,
+            vnc_available=False,
         )
 
     if container_state in ("missing", "unavailable"):
@@ -272,16 +294,24 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=False,
+            vnc_available=False,
         )
+
+    connecting_message = (
+        "Gateway is running. Complete login in the popup window."
+        if vnc_available
+        else "Gateway is running. Approve 2FA on your phone if prompted."
+    )
 
     if gateway_running and not api_port_open:
         return IbkrStatusDetails(
             status="connecting",
-            message="Gateway is running. Approve 2FA on your phone if prompted.",
+            message=connecting_message,
             gateway_running=True,
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=False,
+            vnc_available=vnc_available,
         )
 
     if gateway_running:
@@ -292,6 +322,7 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=True,
+            vnc_available=vnc_available,
         )
 
     return IbkrStatusDetails(
@@ -301,4 +332,5 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
         container_state=container_state,
         docker_available=docker_available,
         api_port_open=False,
+        vnc_available=False,
     )

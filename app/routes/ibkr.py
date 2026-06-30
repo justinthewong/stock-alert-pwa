@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, status
 
-from app.auth import require_auth
+from app.auth import SESSION_COOKIE, read_session_token, require_auth
+from app.config import get_settings
 from app.schemas import IbkrStatusResponse
-from app.services.ibkr_gateway import resolve_ibkr_status, trigger_gateway_login
+from app.services.ibkr_gateway import get_gateway_container_state, resolve_ibkr_status, trigger_gateway_login
+from app.services.vnc_proxy import relay_vnc_websocket
 
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
 
@@ -19,6 +21,7 @@ def _to_response(details) -> IbkrStatusResponse:
         container_state=details.container_state,
         docker_available=details.docker_available,
         api_port_open=details.api_port_open,
+        vnc_available=details.vnc_available,
     )
 
 
@@ -54,4 +57,24 @@ async def ibkr_login(_: str = Depends(require_auth)):
         container_state=status_details.container_state,
         docker_available=status_details.docker_available,
         api_port_open=status_details.api_port_open,
+        vnc_available=status_details.vnc_available,
     )
+
+
+@router.websocket("/vnc/ws")
+async def ibkr_vnc_websocket(websocket: WebSocket):
+    username = read_session_token(websocket.cookies.get(SESSION_COOKIE, ""))
+    if not username:
+        await websocket.close(code=4401, reason="Authentication required.")
+        return
+
+    settings = get_settings().ibkr
+    if not settings.vnc_password:
+        await websocket.close(code=4403, reason="VNC is not configured.")
+        return
+
+    if get_gateway_container_state() != "running":
+        await websocket.close(code=4404, reason="IB Gateway is not running.")
+        return
+
+    await relay_vnc_websocket(websocket)

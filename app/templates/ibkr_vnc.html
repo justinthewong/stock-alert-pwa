@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IB Gateway</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: Inter, system-ui, sans-serif;
+    }
+
+    #hint {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 2;
+      margin: 0;
+      padding: 0.5rem 0.75rem;
+      background: rgba(15, 23, 42, 0.92);
+      color: #9ca3af;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #1f2937;
+    }
+
+    #screen {
+      position: absolute;
+      inset: 0;
+      top: 2.2rem;
+    }
+
+    #status {
+      position: fixed;
+      inset: 2.2rem 0 0 0;
+      display: grid;
+      place-items: center;
+      color: #9ca3af;
+      background: #000;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <p id="hint">If push 2FA does not arrive, choose Login with Challenge/Response below the QR code.</p>
+  <div id="status">Connecting to IB Gateway...</div>
+  <div id="screen"></div>
+  <script type="module">
+    import RFB from '/static/novnc/core/rfb.js';
+
+    const statusEl = document.getElementById('status');
+    const screenEl = document.getElementById('screen');
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/ibkr/vnc/ws`;
+
+    try {
+      const rfb = new RFB(screenEl, wsUrl, {
+        credentials: { password: {{ vnc_password | tojson }} },
+      });
+      rfb.scaleViewport = true;
+      rfb.resizeSession = true;
+      rfb.addEventListener('connect', () => {
+        statusEl.hidden = true;
+      });
+      rfb.addEventListener('disconnect', (event) => {
+        statusEl.hidden = false;
+        statusEl.textContent = event.detail.clean
+          ? 'Disconnected from IB Gateway.'
+          : 'Lost connection to IB Gateway.';
+      });
+      rfb.addEventListener('securityfailure', () => {
+        statusEl.hidden = false;
+        statusEl.textContent = 'VNC authentication failed. Check VNC_SERVER_PASSWORD in .env.';
+      });
+    } catch (error) {
+      statusEl.textContent = error.message || 'Could not start VNC viewer.';
+    }
+  </script>
+</body>
+</html>
