@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import subprocess
 from dataclasses import dataclass, field
 from typing import Literal
 
 from app.config import get_settings
+from app.services.docker_socket import DockerSocketClient, DockerSocketError, get_docker_client
 from app.worker import is_ibkr_connected
 
 logger = logging.getLogger(__name__)
@@ -40,61 +40,29 @@ def _container_name() -> str:
     return os.getenv("IB_GATEWAY_CONTAINER", "stock-alert-ib-gateway")
 
 
-def _compose_file() -> str:
-    return os.getenv("COMPOSE_FILE", "/app/docker-compose.yml")
+def _append_step(steps: list[str], message: str) -> None:
+    steps.append(message)
+    logger.info("IBKR login: %s", message)
 
 
 def _docker_socket_available() -> bool:
     return os.path.exists("/var/run/docker.sock")
 
 
-def _docker_cli_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False
-    return result.returncode == 0
+def _docker_api_available() -> tuple[bool, str]:
+    client = get_docker_client()
+    if client is None:
+        return False, "Docker socket is not mounted into the app container."
+    with client:
+        return client.available()
 
 
-def get_gateway_container_state() -> GatewayContainerState:
-    if not _docker_socket_available():
+def get_gateway_container_state(client: DockerSocketClient | None = None) -> GatewayContainerState:
+    if client is None:
+        client = get_docker_client()
+    if client is None:
         return "unavailable"
-
-    try:
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", _container_name()],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except FileNotFoundError:
-        logger.warning("docker CLI not found while checking gateway container state")
-        return "unavailable"
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.warning("docker inspect failed: %s", exc)
-        return "unavailable"
-
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        if "No such object" in stderr or "Error: No such object" in stderr:
-            return "missing"
-        logger.warning("docker inspect failed: %s", stderr)
-        return "unavailable"
-
-    running = result.stdout.strip().lower()
-    if running == "true":
-        return "running"
-    return "exited"
-
-
-def _append_step(steps: list[str], message: str) -> None:
-    steps.append(message)
-    logger.info("IBKR login: %s", message)
+    return client.container_state(_container_name())
 
 
 async def is_api_port_open() -> bool:
@@ -111,70 +79,36 @@ async def is_api_port_open() -> bool:
         return False
 
 
-def _run_docker_command(args: list[str], *, cwd: str | None = None) -> tuple[bool, str, str]:
-    try:
-        result = subprocess.run(
-            ["docker", *args],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=cwd,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        return False, "", str(exc)
-
-    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
-    if result.returncode != 0:
-        return False, output, output or "docker command failed"
-    return True, output, ""
-
-
-def _validate_compose_prerequisites(steps: list[str]) -> str | None:
-    compose_file = _compose_file()
-    if not os.path.exists(compose_file):
-        return f"Compose file not found at {compose_file}."
-
+def _validate_gateway_prerequisites(steps: list[str]) -> str | None:
     env_path = "/app/.env"
     if os.path.isdir(env_path):
         return (
             "/app/.env is a directory, not a file. On the host, remove the .env directory "
             "and create a .env file from .env.example."
         )
-    if not os.path.exists(env_path):
-        _append_step(steps, "Warning: /app/.env not found. Gateway credentials must be available to Docker Compose.")
-
+    if not os.path.isfile(env_path):
+        _append_step(steps, "Warning: /app/.env not found. IBKR credentials may be missing for the gateway.")
     return None
 
 
-def _compose_command(*extra_args: str) -> list[str]:
-    command = ["compose", "-f", _compose_file()]
-    project_name = os.getenv("COMPOSE_PROJECT_NAME")
-    if project_name:
-        command.extend(["-p", project_name])
-    command.extend(["--profile", "ibkr", *extra_args])
-    return command
-
-
-def _create_gateway_container(steps: list[str]) -> IbkrLoginResult:
-    prerequisite_error = _validate_compose_prerequisites(steps)
+def _create_gateway_container(client: DockerSocketClient, steps: list[str]) -> IbkrLoginResult:
+    prerequisite_error = _validate_gateway_prerequisites(steps)
     if prerequisite_error:
         _append_step(steps, f"Error: {prerequisite_error}")
         return IbkrLoginResult(ok=False, message=prerequisite_error, steps=steps, error=prerequisite_error)
 
-    _append_step(steps, "Creating IB Gateway container with Docker Compose...")
-    ok, output, err = _run_docker_command(
-        _compose_command("up", "-d", "ib-gateway"),
-        cwd="/app",
-    )
-    if output:
-        for line in output.splitlines():
+    _append_step(steps, "Creating IB Gateway container via Docker API...")
+    try:
+        for line in client.create_gateway_container(_container_name()):
             _append_step(steps, line)
-    if not ok:
-        message = f"Could not create gateway container: {err}"
+    except DockerSocketError as exc:
+        message = str(exc)
+        details = exc.details or message
         _append_step(steps, f"Error: {message}")
-        return IbkrLoginResult(ok=False, message=message, steps=steps, error=err)
+        if exc.details:
+            _append_step(steps, exc.details)
+        return IbkrLoginResult(ok=False, message=message, steps=steps, error=details)
 
-    _append_step(steps, "IB Gateway container started. Waiting for login and 2FA approval...")
     return IbkrLoginResult(
         ok=True,
         message="IB Gateway started. Approve 2FA on your phone if prompted.",
@@ -186,7 +120,8 @@ def trigger_gateway_login() -> IbkrLoginResult:
     steps: list[str] = []
     _append_step(steps, "Connect IBKR requested.")
 
-    if not _docker_socket_available():
+    client = get_docker_client()
+    if client is None:
         message = "Docker socket is not available inside the app container."
         _append_step(steps, f"Error: {message}")
         return IbkrLoginResult(
@@ -196,60 +131,60 @@ def trigger_gateway_login() -> IbkrLoginResult:
             error="Start ib-gateway manually on the host: docker compose --profile ibkr up -d ib-gateway",
         )
 
-    if not _docker_cli_available():
-        message = "Docker CLI is not available inside the app container."
-        _append_step(steps, f"Error: {message}")
-        return IbkrLoginResult(
-            ok=False,
-            message=message,
-            steps=steps,
-            error="Rebuild the app image: docker compose up -d --build app",
-        )
-
-    _append_step(steps, "Docker socket is available.")
-
-    state = get_gateway_container_state()
-    _append_step(steps, f"Gateway container state: {state}.")
-
-    if state == "missing":
-        return _create_gateway_container(steps)
-
-    if state == "exited":
-        _append_step(steps, f"Starting container {_container_name()}...")
-        ok, output, err = _run_docker_command(["start", _container_name()])
-        if output:
-            _append_step(steps, output)
+    with client:
+        ok, docker_error = client.available()
         if not ok:
-            message = f"Could not start gateway container: {err}"
+            message = "Could not access the Docker API from the app container."
             _append_step(steps, f"Error: {message}")
-            return IbkrLoginResult(ok=False, message=message, steps=steps, error=err)
-        _append_step(steps, "Container started. Approve 2FA on your phone if prompted.")
-        return IbkrLoginResult(
-            ok=True,
-            message="IB Gateway started. Approve 2FA on your phone if prompted.",
-            steps=steps,
-        )
+            _append_step(steps, docker_error)
+            return IbkrLoginResult(ok=False, message=message, steps=steps, error=docker_error)
 
-    if state == "running":
-        if is_ibkr_connected():
-            message = "Already connected to IBKR."
-            _append_step(steps, message)
-            return IbkrLoginResult(ok=True, message=message, steps=steps)
+        _append_step(steps, "Docker API is available.")
 
-        _append_step(steps, "Gateway is running but API is not connected. Restarting container for a fresh login...")
-        ok, output, err = _run_docker_command(["restart", _container_name()])
-        if output:
-            _append_step(steps, output)
-        if not ok:
-            message = f"Could not restart gateway container: {err}"
-            _append_step(steps, f"Error: {message}")
-            return IbkrLoginResult(ok=False, message=message, steps=steps, error=err)
-        _append_step(steps, "Container restarted. Approve 2FA on your phone if prompted.")
-        return IbkrLoginResult(
-            ok=True,
-            message="IB Gateway restarted. Approve 2FA on your phone if prompted.",
-            steps=steps,
-        )
+        state = client.container_state(_container_name())
+        _append_step(steps, f"Gateway container state: {state}.")
+
+        if state == "missing":
+            return _create_gateway_container(client, steps)
+
+        if state == "exited":
+            _append_step(steps, f"Starting container {_container_name()}...")
+            try:
+                _append_step(steps, client.start_container(_container_name()))
+            except DockerSocketError as exc:
+                message = str(exc)
+                _append_step(steps, f"Error: {message}")
+                if exc.details:
+                    _append_step(steps, exc.details)
+                return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
+            _append_step(steps, "Container started. Approve 2FA on your phone if prompted.")
+            return IbkrLoginResult(
+                ok=True,
+                message="IB Gateway started. Approve 2FA on your phone if prompted.",
+                steps=steps,
+            )
+
+        if state == "running":
+            if is_ibkr_connected():
+                message = "Already connected to IBKR."
+                _append_step(steps, message)
+                return IbkrLoginResult(ok=True, message=message, steps=steps)
+
+            _append_step(steps, "Gateway is running but API is not connected. Restarting container for a fresh login...")
+            try:
+                _append_step(steps, client.restart_container(_container_name()))
+            except DockerSocketError as exc:
+                message = str(exc)
+                _append_step(steps, f"Error: {message}")
+                if exc.details:
+                    _append_step(steps, exc.details)
+                return IbkrLoginResult(ok=False, message=message, steps=steps, error=exc.details or message)
+            _append_step(steps, "Container restarted. Approve 2FA on your phone if prompted.")
+            return IbkrLoginResult(
+                ok=True,
+                message="IB Gateway restarted. Approve 2FA on your phone if prompted.",
+                steps=steps,
+            )
 
     message = "Could not determine gateway container state."
     _append_step(steps, f"Error: {message}")
@@ -273,8 +208,17 @@ async def resolve_ibkr_status() -> IbkrStatusDetails:
 
 
 async def _resolve_ibkr_status() -> IbkrStatusDetails:
-    docker_available = _docker_socket_available() and _docker_cli_available()
-    container_state = get_gateway_container_state()
+    docker_available = False
+    docker_error = ""
+    container_state: GatewayContainerState = "unavailable"
+
+    client = get_docker_client()
+    if client is not None:
+        with client:
+            docker_available, docker_error = client.available()
+            if docker_available:
+                container_state = client.container_state(_container_name())
+
     gateway_running = container_state == "running"
     api_port_open = await is_api_port_open() if gateway_running else False
 
@@ -289,12 +233,12 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
         )
 
     if not docker_available:
-        if _docker_socket_available() and not _docker_cli_available():
+        if _docker_socket_available():
             return IbkrStatusDetails(
                 status="error",
-                message="Docker CLI is not available inside the app container.",
+                message="Could not access the Docker API from the app container.",
                 gateway_running=False,
-                error="Rebuild the app image so it includes the docker CLI: docker compose up -d --build app",
+                error=docker_error or "Check Docker socket permissions for the app container.",
                 container_state=container_state,
                 docker_available=False,
                 api_port_open=False,
