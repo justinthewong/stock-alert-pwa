@@ -16,7 +16,7 @@ async def relay_vnc_websocket(websocket: WebSocket) -> None:
         return
 
     settings = get_settings().ibkr
-    await websocket.accept(subprotocol="binary")
+    await websocket.accept()
 
     reader: asyncio.StreamReader | None = None
     writer: asyncio.StreamWriter | None = None
