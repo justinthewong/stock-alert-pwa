@@ -5,17 +5,17 @@ import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.config import get_settings
+from app.config import get_settings, get_vnc_password
 
 logger = logging.getLogger(__name__)
 
 
 async def relay_vnc_websocket(websocket: WebSocket) -> None:
-    settings = get_settings().ibkr
-    if not settings.vnc_password:
+    if not get_vnc_password():
         await websocket.close(code=4403, reason="VNC is not configured.")
         return
 
+    settings = get_settings().ibkr
     await websocket.accept(subprotocol="binary")
 
     reader: asyncio.StreamReader | None = None

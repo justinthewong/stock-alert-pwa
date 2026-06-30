@@ -65,7 +65,7 @@ def _load_env_file(path: Path) -> dict[str, str]:
             if not stripped or stripped.startswith("#") or "=" not in stripped:
                 continue
             key, value = stripped.split("=", 1)
-            values[key.strip()] = value.strip()
+            values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
 
@@ -77,6 +77,18 @@ def _env_value(name: str, default: str = "") -> str:
         return dotenv[name]
     dotenv = _load_env_file(Path(".env"))
     return dotenv.get(name, default)
+
+
+def get_vnc_password() -> str:
+    return _env_value("VNC_SERVER_PASSWORD")
+
+
+def get_vnc_host() -> str:
+    return _env_value("IB_VNC_HOST", os.getenv("IB_GATEWAY_HOST", "127.0.0.1"))
+
+
+def get_vnc_port() -> int:
+    return int(_env_value("IB_VNC_PORT", "5900"))
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -126,8 +138,8 @@ def get_settings() -> Settings:
             client_id=int(os.getenv("IB_CLIENT_ID", "1")),
             trading_mode=trading_mode,
             max_depth_symbols=int(os.getenv("IB_MAX_DEPTH_SYMBOLS", "3")),
-            vnc_host=_env_value("IB_VNC_HOST", os.getenv("IB_GATEWAY_HOST", "127.0.0.1")),
-            vnc_port=int(_env_value("IB_VNC_PORT", "5900")),
-            vnc_password=_env_value("VNC_SERVER_PASSWORD"),
+            vnc_host=get_vnc_host(),
+            vnc_port=get_vnc_port(),
+            vnc_password=get_vnc_password(),
         ),
     )

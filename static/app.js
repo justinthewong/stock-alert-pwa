@@ -140,10 +140,6 @@ function closeIbkrVncModal() {
 function maybeOpenIbkrVncModal(data) {
   if (data?.vnc_available && data.status === 'connecting') {
     openIbkrVncModal();
-    return;
-  }
-  if (data?.status === 'connecting' && !data?.vnc_available) {
-    setIbkrError('Set VNC_SERVER_PASSWORD in .env to enable the IB Gateway GUI popup.');
   }
 }
 
