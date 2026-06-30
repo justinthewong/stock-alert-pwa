@@ -109,6 +109,11 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
+button.secondary.danger {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
 .grid {
   display: grid;
   gap: 0.9rem;

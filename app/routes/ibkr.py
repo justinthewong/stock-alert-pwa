@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, statu
 from app.auth import SESSION_COOKIE, read_session_token, require_auth
 from app.config import get_vnc_password
 from app.schemas import IbkrStatusResponse
-from app.services.ibkr_gateway import get_gateway_container_state, resolve_ibkr_status, trigger_gateway_login
+from app.services.ibkr_gateway import (
+    get_gateway_container_state,
+    resolve_ibkr_status,
+    trigger_gateway_login,
+    trigger_gateway_stop,
+)
 from app.services.vnc_proxy import relay_vnc_websocket
 
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
@@ -54,6 +59,35 @@ async def ibkr_login(_: str = Depends(require_auth)):
     return IbkrStatusResponse(
         status=response_status,
         message=response_message,
+        gateway_running=status_details.gateway_running,
+        steps=result.steps,
+        error=status_details.error or result.error,
+        container_state=status_details.container_state,
+        docker_available=status_details.docker_available,
+        api_port_open=status_details.api_port_open,
+        vnc_available=status_details.vnc_available,
+        vnc_configured=bool(get_vnc_password()),
+    )
+
+
+@router.post("/stop", response_model=IbkrStatusResponse)
+async def ibkr_stop(_: str = Depends(require_auth)):
+    result = trigger_gateway_stop()
+    status_details = await resolve_ibkr_status()
+
+    if not result.ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": result.message,
+                "error": result.error,
+                "steps": result.steps,
+            },
+        )
+
+    return IbkrStatusResponse(
+        status=status_details.status,
+        message=result.message,
         gateway_running=status_details.gateway_running,
         steps=result.steps,
         error=status_details.error or result.error,
