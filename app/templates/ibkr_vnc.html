@@ -47,6 +47,10 @@
       background: #000;
       z-index: 1;
     }
+
+    #status[hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -73,7 +77,7 @@
         credentials: { password: {{ vnc_password | tojson }} },
       });
       rfb.scaleViewport = true;
-      rfb.resizeSession = true;
+      rfb.resizeSession = false;
       rfb.addEventListener('connect', () => {
         connected = true;
         statusEl.hidden = true;
