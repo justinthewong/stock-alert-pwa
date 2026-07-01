@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,10 +24,20 @@ from app.services.push_notifier import send_alert_notification
 
 logger = logging.getLogger(__name__)
 
+WorkerState = Literal["idle", "connecting", "connected", "backoff"]
+
 
 def _session() -> Session:
     SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, future=True)
     return SessionLocal()
+
+
+@dataclass(frozen=True)
+class WorkerStatus:
+    worker_state: WorkerState
+    worker_connected: bool
+    worker_last_error: str | None
+    depth_subscriptions: int
 
 
 class DepthWorker:
@@ -34,26 +46,63 @@ class DepthWorker:
         self._handlers: dict[str, object] = {}
         self._rotation_index = 0
         self._running = False
+        self.worker_state: WorkerState = "idle"
+        self.worker_last_error: str | None = None
+        self._reconnect_event = asyncio.Event()
+
+    @property
+    def depth_subscription_count(self) -> int:
+        return len(self._handlers)
+
+    def request_reconnect(self) -> None:
+        if self.client.connected:
+            return
+        self._reconnect_event.set()
+
+    async def _interruptible_sleep(self, seconds: float) -> None:
+        sleep_task = asyncio.create_task(asyncio.sleep(seconds))
+        reconnect_task = asyncio.create_task(self._reconnect_event.wait())
+        done, pending = await asyncio.wait(
+            {sleep_task, reconnect_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._reconnect_event.clear()
 
     async def run(self) -> None:
         self._running = True
         backoff = 5
         while self._running:
             try:
+                self.worker_state = "connecting"
+                self.worker_last_error = None
                 await self.client.connect()
+                self.worker_state = "connected"
                 backoff = 5
                 await self._run_connected_loop()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.exception("Depth worker error: %s", exc)
+                self.worker_last_error = str(exc)[:500]
                 self.client.disconnect()
-                await asyncio.sleep(backoff)
+                self.worker_state = "backoff"
+                await self._interruptible_sleep(backoff)
                 backoff = min(backoff * 2, 120)
+            else:
+                if not self.client.connected:
+                    self.worker_state = "idle"
 
     async def _run_connected_loop(self) -> None:
         while self._running and self.client.connected:
-            await self._sync_subscriptions()
+            try:
+                await self._sync_subscriptions()
+            except Exception as exc:
+                logger.exception("Depth worker subscription error: %s", exc)
+                self.worker_last_error = str(exc)[:500]
+                raise
             await asyncio.sleep(30)
 
     async def _sync_subscriptions(self) -> None:
@@ -145,6 +194,7 @@ class DepthWorker:
 
     def stop(self) -> None:
         self._running = False
+        self.worker_state = "idle"
         self.client.disconnect()
 
 
@@ -153,6 +203,29 @@ _worker: DepthWorker | None = None
 
 def get_worker() -> DepthWorker | None:
     return _worker
+
+
+def request_worker_reconnect() -> None:
+    worker = get_worker()
+    if worker is not None:
+        worker.request_reconnect()
+
+
+def get_worker_status() -> WorkerStatus:
+    worker = get_worker()
+    if worker is None:
+        return WorkerStatus(
+            worker_state="idle",
+            worker_connected=False,
+            worker_last_error=None,
+            depth_subscriptions=0,
+        )
+    return WorkerStatus(
+        worker_state=worker.worker_state,
+        worker_connected=worker.client.connected,
+        worker_last_error=worker.worker_last_error,
+        depth_subscriptions=worker.depth_subscription_count,
+    )
 
 
 def disconnect_ibkr_client() -> None:

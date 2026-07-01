@@ -168,6 +168,74 @@ function needsIbkrVncLogin(data) {
   return gatewayUp && Boolean(data?.vnc_available || data?.vnc_configured);
 }
 
+function updateIbkrMarketData(data) {
+  const marketDataEl = document.getElementById('ibkr-market-data');
+  if (!marketDataEl) return;
+
+  if (data?.status === 'connected') {
+    if (data.market_data_active && data.depth_subscriptions > 0) {
+      const label = data.depth_subscriptions === 1 ? 'ticker' : 'tickers';
+      marketDataEl.textContent = `Market data: active (${data.depth_subscriptions} ${label})`;
+    } else if (data.worker_connected) {
+      marketDataEl.textContent = 'Market data: connected — add an alert to start monitoring';
+    } else {
+      marketDataEl.textContent = 'Market data: waiting for connection';
+    }
+    marketDataEl.hidden = false;
+    return;
+  }
+
+  if (data?.gateway_authenticated && !data?.worker_connected) {
+    let message = 'Market data: login accepted, connecting to IB API...';
+    if (data.worker_last_error) {
+      message += ` Last error: ${data.worker_last_error}`;
+    }
+    marketDataEl.textContent = message;
+    marketDataEl.hidden = false;
+    return;
+  }
+
+  if (data?.gateway_running && !data?.gateway_authenticated) {
+    marketDataEl.textContent = 'Market data: waiting for IBKR login and 2FA';
+    marketDataEl.hidden = false;
+    return;
+  }
+
+  marketDataEl.textContent = '';
+  marketDataEl.hidden = true;
+}
+
+function ibkrPollPhase(data) {
+  if (data?.status === 'connected') return 'connected';
+  if (data?.gateway_authenticated) return 'gateway_ready';
+  if (data?.gateway_running) return 'awaiting_login';
+  return 'other';
+}
+
+function ibkrPollPhaseMessage(phase) {
+  switch (phase) {
+    case 'awaiting_login':
+      return 'Waiting for IBKR login and 2FA...';
+    case 'gateway_ready':
+      return 'Login accepted — connecting to IB API for market data...';
+    case 'connected':
+      return 'Connected to IBKR.';
+    default:
+      return 'Checking IBKR connection status...';
+  }
+}
+
+function shouldStopIbkrPolling(data) {
+  if (data.status === 'connected' || data.status === 'error') {
+    return true;
+  }
+  return data.status === 'disconnected' && Boolean(data.error);
+}
+
+function ibkrPollTimeoutMs(gatewayAuthenticated) {
+  return gatewayAuthenticated ? 300000 : 120000;
+}
+
 function updateIbkrVncLoginUi(data) {
   const prompt = document.getElementById('ibkr-vnc-prompt');
   if (prompt) {
@@ -224,6 +292,7 @@ function updateIbkrUi(data) {
   }
 
   updateStopButton(data);
+  updateIbkrMarketData(data);
 
   if (data.status === 'connected') {
     closeIbkrVncModal();
@@ -260,16 +329,27 @@ function stopIbkrPolling() {
 function startIbkrPolling() {
   stopIbkrPolling();
   const startedAt = Date.now();
-  appendIbkrLog(['Polling for IBKR connection status...']);
+  let gatewayAuthenticated = false;
+  let lastPollPhase = null;
+  appendIbkrLog([ibkrPollPhaseMessage('other')]);
   ibkrPollTimer = setInterval(async () => {
-    if (Date.now() - startedAt > 120000) {
+    if (Date.now() - startedAt > ibkrPollTimeoutMs(gatewayAuthenticated)) {
       stopIbkrPolling();
       const statusEl = document.getElementById('ibkr-status');
       if (statusEl) {
-        statusEl.textContent = 'Connection timed out. Try Connect IBKR again and approve 2FA on your phone.';
+        if (gatewayAuthenticated) {
+          statusEl.textContent =
+            'Login was accepted but market data did not connect in time. Check app logs and IB_CLIENT_ID.';
+        } else {
+          statusEl.textContent =
+            'Connection timed out. Try Connect IBKR again and approve 2FA on your phone.';
+        }
         statusEl.className = 'status error';
       }
-      setIbkrError('No connection after 2 minutes. Check gateway logs: docker logs stock-alert-ib-gateway');
+      const timeoutMessage = gatewayAuthenticated
+        ? 'Gateway login succeeded but the app worker did not connect. Check: docker logs stock-alert-app-1'
+        : 'No connection after 2 minutes. Check gateway logs: docker logs stock-alert-ib-gateway';
+      setIbkrError(timeoutMessage);
       const loginBtn = document.getElementById('ibkr-login-btn');
       if (loginBtn) {
         loginBtn.hidden = false;
@@ -285,8 +365,16 @@ function startIbkrPolling() {
       if (!response.ok || !data) {
         throw new Error(formatApiError(data, raw, 'Could not read IBKR status.'));
       }
+      if (data.gateway_authenticated) {
+        gatewayAuthenticated = true;
+      }
+      const phase = ibkrPollPhase(data);
+      if (phase !== lastPollPhase) {
+        appendIbkrLog([ibkrPollPhaseMessage(phase)]);
+        lastPollPhase = phase;
+      }
       updateIbkrUi(data);
-      if (data.status === 'connected' || data.status === 'error') {
+      if (shouldStopIbkrPolling(data)) {
         stopIbkrPolling();
       }
     } catch (error) {
@@ -368,6 +456,9 @@ async function connectIbkr() {
   updateIbkrUi(data);
   if (data.status !== 'connected') {
     startIbkrPolling();
+    if (needsIbkrVncLogin(data)) {
+      openIbkrVncModal();
+    }
   }
 }
 

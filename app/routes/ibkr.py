@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, status
 
 from app.auth import SESSION_COOKIE, read_session_token, require_auth
 from app.config import get_vnc_password
@@ -22,15 +22,15 @@ def _vnc_login_required(details) -> bool:
     return bool(details.vnc_available or get_vnc_password())
 
 
-def _to_response(details) -> IbkrStatusResponse:
-    status = details.status
-    if status == "disconnected" and details.gateway_running:
-        status = "connecting"
+def _to_response(details, *, steps=None, message=None) -> IbkrStatusResponse:
+    response_status = details.status
+    if response_status == "disconnected" and details.gateway_running:
+        response_status = "connecting"
     return IbkrStatusResponse(
-        status=status,
-        message=details.message,
+        status=response_status,
+        message=message if message is not None else details.message,
         gateway_running=details.gateway_running,
-        steps=details.steps,
+        steps=steps if steps is not None else details.steps,
         error=details.error,
         container_state=details.container_state,
         docker_available=details.docker_available,
@@ -38,6 +38,12 @@ def _to_response(details) -> IbkrStatusResponse:
         vnc_available=details.vnc_available,
         vnc_configured=bool(get_vnc_password()),
         vnc_login_required=_vnc_login_required(details),
+        gateway_authenticated=details.gateway_authenticated,
+        worker_connected=details.worker_connected,
+        worker_state=details.worker_state,
+        worker_last_error=details.worker_last_error,
+        depth_subscriptions=details.depth_subscriptions,
+        market_data_active=details.market_data_active,
     )
 
 
@@ -61,23 +67,11 @@ async def ibkr_login(_: str = Depends(require_auth)):
             },
         )
 
-    response_status = status_details.status
-    if response_status == "disconnected" and status_details.gateway_running:
-        response_status = "connecting"
     response_message = result.message if status_details.status == "connected" else status_details.message
-
-    return IbkrStatusResponse(
-        status=response_status,
-        message=response_message,
-        gateway_running=status_details.gateway_running,
+    return _to_response(
+        status_details,
         steps=result.steps,
-        error=status_details.error or result.error,
-        container_state=status_details.container_state,
-        docker_available=status_details.docker_available,
-        api_port_open=status_details.api_port_open,
-        vnc_available=status_details.vnc_available,
-        vnc_configured=bool(get_vnc_password()),
-        vnc_login_required=_vnc_login_required(status_details),
+        message=response_message,
     )
 
 
@@ -96,24 +90,16 @@ async def ibkr_stop(_: str = Depends(require_auth)):
             },
         )
 
-    response_status = status_details.status
     response_error = status_details.error or result.error
     if not status_details.gateway_running:
-        response_status = "disconnected"
+        status_details.status = "disconnected"
+        status_details.error = None
         response_error = None
 
-    return IbkrStatusResponse(
-        status=response_status,
-        message=result.message,
-        gateway_running=status_details.gateway_running,
+    return _to_response(
+        status_details,
         steps=result.steps,
-        error=response_error,
-        container_state=status_details.container_state,
-        docker_available=status_details.docker_available,
-        api_port_open=status_details.api_port_open,
-        vnc_available=status_details.vnc_available,
-        vnc_configured=bool(get_vnc_password()),
-        vnc_login_required=False,
+        message=result.message,
     )
 
 

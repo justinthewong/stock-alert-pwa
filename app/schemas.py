@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 Side = Literal["buy", "sell"]
 AlertStatus = Literal["active", "triggered", "disabled"]
 IbkrConnectionStatus = Literal["disconnected", "connecting", "connected", "error"]
+WorkerState = Literal["idle", "connecting", "connected", "backoff"]
 
 
 class LoginRequest(BaseModel):
@@ -71,3 +72,9 @@ class IbkrStatusResponse(BaseModel):
     vnc_available: bool = False
     vnc_configured: bool = False
     vnc_login_required: bool = False
+    gateway_authenticated: bool = False
+    worker_connected: bool = False
+    worker_state: WorkerState = "idle"
+    worker_last_error: str | None = None
+    depth_subscriptions: int = 0
+    market_data_active: bool = False
