@@ -8,7 +8,12 @@ from typing import Literal
 
 from app.config import get_settings, get_vnc_password
 from app.services.docker_socket import DockerSocketClient, DockerSocketError, get_docker_client
-from app.worker import disconnect_ibkr_client, is_ibkr_connected
+from app.worker import (
+    disconnect_ibkr_client,
+    get_worker_status,
+    is_ibkr_connected,
+    request_worker_reconnect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,12 @@ class IbkrStatusDetails:
     docker_available: bool = False
     api_port_open: bool = False
     vnc_available: bool = False
+    gateway_authenticated: bool = False
+    worker_connected: bool = False
+    worker_state: str = "idle"
+    worker_last_error: str | None = None
+    depth_subscriptions: int = 0
+    market_data_active: bool = False
 
 
 def _container_name() -> str:
@@ -53,9 +64,71 @@ def _needs_gateway_recreate(client: DockerSocketClient) -> bool:
     return _vnc_configured() and not _container_has_vnc(client)
 
 
+def _market_data_active(worker_connected: bool, depth_subscriptions: int, active_alert_count: int) -> bool:
+    if not worker_connected:
+        return False
+    if active_alert_count == 0:
+        return True
+    return depth_subscriptions > 0
+
+
+def _active_alert_count() -> int:
+    from app.services.alert_service import list_active_alerts
+    from app.database import get_engine
+    from sqlalchemy.orm import sessionmaker
+
+    SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, future=True)
+    session = SessionLocal()
+    try:
+        return len(list_active_alerts(session))
+    except Exception:
+        logger.exception("Failed counting active alerts for IBKR status")
+        return 0
+    finally:
+        session.close()
+
+
+def _worker_fields() -> dict[str, object]:
+    worker_status = get_worker_status()
+    active_alerts = _active_alert_count()
+    worker_connected = worker_status.worker_connected
+    depth_subscriptions = worker_status.depth_subscriptions
+    return {
+        "worker_connected": worker_connected,
+        "worker_state": worker_status.worker_state,
+        "worker_last_error": worker_status.worker_last_error,
+        "depth_subscriptions": depth_subscriptions,
+        "market_data_active": _market_data_active(worker_connected, depth_subscriptions, active_alerts),
+    }
+
+
+def _with_worker_fields(details: IbkrStatusDetails) -> IbkrStatusDetails:
+    fields = _worker_fields()
+    details.worker_connected = bool(fields["worker_connected"])
+    details.worker_state = str(fields["worker_state"])
+    details.worker_last_error = fields["worker_last_error"]  # type: ignore[assignment]
+    details.depth_subscriptions = int(fields["depth_subscriptions"])
+    details.market_data_active = bool(fields["market_data_active"])
+    details.gateway_authenticated = details.api_port_open
+    return details
+
+
+def _connected_message(depth_subscriptions: int) -> str:
+    if depth_subscriptions == 1:
+        return "Connected. Monitoring 1 ticker for depth."
+    if depth_subscriptions > 1:
+        return f"Connected. Monitoring {depth_subscriptions} tickers for depth."
+    return "Connected to IBKR. Add an alert to start monitoring depth."
+
+
+def _maybe_nudge_worker(api_port_open: bool) -> None:
+    if api_port_open and not is_ibkr_connected():
+        request_worker_reconnect()
+
+
 def _connecting_status_message(vnc_available: bool, gateway_container_vnc: bool) -> tuple[str, str | None]:
     if vnc_available:
-        return "Gateway is running. Click Open login window to complete login.", None
+        return "Complete IBKR login and 2FA in the login window.", None
     if _vnc_configured() and not gateway_container_vnc:
         return (
             "Gateway is running but needs to be recreated for the GUI popup.",
@@ -235,6 +308,7 @@ def trigger_gateway_login() -> IbkrLoginResult:
                 _append_step(steps, "Gateway container lacks VNC. Recreating with current settings...")
                 return _recreate_gateway_container(client, steps)
 
+            disconnect_ibkr_client()
             _append_step(steps, "Gateway is running but API is not connected. Restarting container for a fresh login...")
             try:
                 _append_step(steps, client.restart_container(_container_name()))
@@ -349,104 +423,126 @@ async def _resolve_ibkr_status() -> IbkrStatusDetails:
     api_port_open = await is_api_port_open() if gateway_running else False
     vnc_available = _vnc_configured() and gateway_running and gateway_container_vnc
 
+    _maybe_nudge_worker(api_port_open)
+
     if is_ibkr_connected():
-        return IbkrStatusDetails(
-            status="connected",
-            message="Connected to IBKR.",
-            gateway_running=gateway_running,
-            container_state=container_state,
-            docker_available=docker_available,
-            api_port_open=True,
-            vnc_available=vnc_available,
+        worker_fields = _worker_fields()
+        depth_subscriptions = int(worker_fields["depth_subscriptions"])
+        return _with_worker_fields(
+            IbkrStatusDetails(
+                status="connected",
+                message=_connected_message(depth_subscriptions),
+                gateway_running=gateway_running,
+                container_state=container_state,
+                docker_available=docker_available,
+                api_port_open=True,
+                vnc_available=vnc_available,
+            )
         )
 
     if not docker_available:
         if _docker_socket_available():
-            return IbkrStatusDetails(
+            return _with_worker_fields(
+                IbkrStatusDetails(
+                    status="error",
+                    message="Could not access the Docker API from the app container.",
+                    gateway_running=False,
+                    error=docker_error or "Check Docker socket permissions for the app container.",
+                    container_state=container_state,
+                    docker_available=False,
+                    api_port_open=False,
+                    vnc_available=False,
+                )
+            )
+        return _with_worker_fields(
+            IbkrStatusDetails(
                 status="error",
-                message="Could not access the Docker API from the app container.",
+                message="Docker socket is not available. IBKR login cannot be triggered from the dashboard.",
                 gateway_running=False,
-                error=docker_error or "Check Docker socket permissions for the app container.",
+                error="Mount /var/run/docker.sock into the app container, or start ib-gateway manually.",
                 container_state=container_state,
                 docker_available=False,
                 api_port_open=False,
                 vnc_available=False,
             )
-        return IbkrStatusDetails(
-            status="error",
-            message="Docker socket is not available. IBKR login cannot be triggered from the dashboard.",
-            gateway_running=False,
-            error="Mount /var/run/docker.sock into the app container, or start ib-gateway manually.",
-            container_state=container_state,
-            docker_available=False,
-            api_port_open=False,
-            vnc_available=False,
         )
 
     if container_state == "exited":
-        return IbkrStatusDetails(
-            status="error",
-            message="IB Gateway container has stopped.",
-            gateway_running=False,
-            error="Click Connect IBKR to start it again.",
-            container_state=container_state,
-            docker_available=docker_available,
-            api_port_open=False,
-            vnc_available=False,
+        return _with_worker_fields(
+            IbkrStatusDetails(
+                status="error",
+                message="IB Gateway container has stopped.",
+                gateway_running=False,
+                error="Click Connect IBKR to start it again.",
+                container_state=container_state,
+                docker_available=docker_available,
+                api_port_open=False,
+                vnc_available=False,
+            )
         )
 
     if container_state in ("missing", "unavailable"):
-        return IbkrStatusDetails(
-            status="disconnected",
-            message="Not connected to IBKR. Click Connect IBKR to start the gateway.",
-            gateway_running=False,
-            container_state=container_state,
-            docker_available=docker_available,
-            api_port_open=False,
-            vnc_available=False,
+        return _with_worker_fields(
+            IbkrStatusDetails(
+                status="disconnected",
+                message="Not connected to IBKR. Click Connect IBKR to start the gateway.",
+                gateway_running=False,
+                container_state=container_state,
+                docker_available=docker_available,
+                api_port_open=False,
+                vnc_available=False,
+            )
         )
 
     connecting_message, connecting_error = _connecting_status_message(vnc_available, gateway_container_vnc)
 
     if gateway_running and not api_port_open:
         if vnc_available:
-            return IbkrStatusDetails(
-                status="connecting",
+            return _with_worker_fields(
+                IbkrStatusDetails(
+                    status="connecting",
+                    message=connecting_message,
+                    gateway_running=True,
+                    container_state=container_state,
+                    docker_available=docker_available,
+                    api_port_open=False,
+                    vnc_available=True,
+                )
+            )
+        return _with_worker_fields(
+            IbkrStatusDetails(
+                status="disconnected",
                 message=connecting_message,
                 gateway_running=True,
                 container_state=container_state,
                 docker_available=docker_available,
                 api_port_open=False,
-                vnc_available=True,
+                vnc_available=False,
+                error=connecting_error,
             )
-        return IbkrStatusDetails(
+        )
+
+    if gateway_running:
+        return _with_worker_fields(
+            IbkrStatusDetails(
+                status="connecting",
+                message="Login accepted. Connecting to IB API for market data...",
+                gateway_running=True,
+                container_state=container_state,
+                docker_available=docker_available,
+                api_port_open=True,
+                vnc_available=vnc_available,
+            )
+        )
+
+    return _with_worker_fields(
+        IbkrStatusDetails(
             status="disconnected",
-            message=connecting_message,
-            gateway_running=True,
+            message="Not connected to IBKR.",
+            gateway_running=False,
             container_state=container_state,
             docker_available=docker_available,
             api_port_open=False,
             vnc_available=False,
-            error=connecting_error,
         )
-
-    if gateway_running:
-        return IbkrStatusDetails(
-            status="connecting",
-            message="Gateway API port is open. Waiting for the app worker to connect...",
-            gateway_running=True,
-            container_state=container_state,
-            docker_available=docker_available,
-            api_port_open=True,
-            vnc_available=vnc_available,
-        )
-
-    return IbkrStatusDetails(
-        status="disconnected",
-        message="Not connected to IBKR.",
-        gateway_running=False,
-        container_state=container_state,
-        docker_available=docker_available,
-        api_port_open=False,
-        vnc_available=False,
     )
